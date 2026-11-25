@@ -1,5 +1,5 @@
 import {
-  RULES, TARGETINGS, TOWERS, TOWER_TYPES, UNITS, UNIT_TYPES, sendCap,
+  RULES, TARGETINGS, TOWERS, TOWER_TYPES, UNITS, UNIT_TYPES, defenceResale, scannerPrice, sendCap,
   type Spec, type Targeting, type TowerType, type UnitType,
 } from "./data.ts";
 import { runBattle, type BattleResult, type Tower } from "./battle.ts";
@@ -7,9 +7,10 @@ import { generateMap, isBuildable, type GameMap } from "./map.ts";
 import { baseWave, sendGroups } from "./waves.ts";
 
 export type Action =
+  | { type: "scan" }
   | { type: "build"; tower: TowerType; x: number; y: number; targeting?: Targeting }
   | { type: "upgrade"; id: number; spec?: Spec }
-  | { type: "sell"; id: number }
+  | { type: "sell"; id: number; pricing?: "whole-percent" }
   | { type: "target"; id: number; mode: Targeting }
   | { type: "send"; unit: UnitType; orders?: number };
 
@@ -23,7 +24,25 @@ export interface Lane {
   sends: { unit: UnitType; orders: number }[];
   sendSpent: number;
   committed: boolean;
-  totals: { towerGold: number; sendGold: number; bounty: number; livesTaken: number; refunds: number };
+  /** What this player knows about the opponent's towers. Fog of war: only what contact or a Scanner revealed. */
+  intel: Intel;
+  /** Round of this player's last Scanner, 0 if none. */
+  lastScanRound: number;
+  totals: { towerGold: number; sendGold: number; scannerGold: number; bounty: number; livesTaken: number; refunds: number; goldStolen: number; goldLost: number };
+}
+
+/** One opponent tower as last seen. It may since have been upgraded, retargeted or sold. */
+export interface SeenTower extends Tower {
+  seenRound: number;
+  /** "contact": it struck one of your raiders in that round's battle. "scan": a Scanner saw it as that round opened. */
+  via: "contact" | "scan";
+}
+
+export interface Intel {
+  /** Known opponent towers, by tower id. */
+  towers: Record<number, SeenTower>;
+  /** Towers first revealed in the most recent round, for the round report. */
+  newlySeen: number[];
 }
 
 export interface RoundRecord {
@@ -33,6 +52,9 @@ export interface RoundRecord {
     battle: BattleResult;
     sent: { unit: UnitType; orders: number }[];
     sendSpent: number;
+    /** Gold thieves took from this side, and gold this side's thieves brought home. */
+    goldLost: number;
+    goldStolen: number;
     goldAfter: number;
     incomeAfter: number;
     livesAfter: number;
@@ -42,7 +64,7 @@ export interface RoundRecord {
 
 export type Winner = 0 | 1 | "draw";
 
-/** A lane as its opponent may see it: frozen when the round opened, so hidden moves stay hidden. */
+/** A lane as it stood when the round opened. What a Scanner sees; never shown to the opponent directly. */
 export interface OpenLane {
   towers: Tower[];
   lives: number;
@@ -57,7 +79,7 @@ export interface DuelState {
   round: number;
   status: "planning" | "finished";
   lanes: [Lane, Lane];
-  /** Public snapshot of each lane, refreshed when a round opens. */
+  /** Each lane as the round opened. Private: only a Scanner reads the opponent's. */
   open: [OpenLane, OpenLane];
   history: RoundRecord[];
   winner: Winner | null;
@@ -69,8 +91,8 @@ export interface DuelState {
 function newLane(): Lane {
   return {
     gold: RULES.startGold, income: RULES.baseIncome, lives: RULES.startLives, towers: [], nextTowerId: 1,
-    sends: [], sendSpent: 0, committed: false,
-    totals: { towerGold: 0, sendGold: 0, bounty: 0, livesTaken: 0, refunds: 0 },
+    sends: [], sendSpent: 0, committed: false, intel: { towers: {}, newlySeen: [] }, lastScanRound: 0,
+    totals: { towerGold: 0, sendGold: 0, scannerGold: 0, bounty: 0, livesTaken: 0, refunds: 0, goldStolen: 0, goldLost: 0 },
   };
 }
 
@@ -92,16 +114,35 @@ const fail = (error: string): ActionResult => ({ ok: false, error });
 
 /** Validate and apply one action for a player. Rejected actions change nothing. */
 export function applyAction(state: DuelState, player: 0 | 1, action: Action): ActionResult {
+  const order: Action = action?.type === "sell" ? { ...action, pricing: "whole-percent" } : action;
+  return applyRecordedAction(state, player, order);
+}
+
+/** Old sales used floating-point multiplication. Keep their exact payout during replay. */
+export function applyRecordedAction(state: DuelState, player: 0 | 1, action: Action): ActionResult {
   if (state.status !== "planning") return fail("The match is over.");
   const lane = state.lanes[player];
   if (lane.committed) return fail("You already ended your turn this round.");
-  const res = apply(state, lane, action);
+  const res = apply(state, player, lane, action);
   if (res.ok) state.log[state.round - 1][player].push(action);
   return res;
 }
 
-function apply(state: DuelState, lane: Lane, a: Action): ActionResult {
+function apply(state: DuelState, player: 0 | 1, lane: Lane, a: Action): ActionResult {
   switch (a?.type) {
+    case "scan": {
+      const cost = scannerPrice(state.round);
+      if (lane.lastScanRound === state.round) return fail("You already have this round's Scanner report. Read it again with scout_opponent.");
+      if (lane.gold < cost) return fail(`A Scanner costs ${cost} gold this round; you have ${lane.gold}.`);
+      lane.gold -= cost;
+      lane.totals.scannerGold += cost;
+      lane.lastScanRound = state.round;
+      // A Scanner sees the whole base as it opened this round, and anything not there is gone.
+      const seen: Record<number, SeenTower> = {};
+      for (const t of state.open[1 - player].towers) seen[t.id] = { ...t, seenRound: state.round, via: "scan" };
+      lane.intel = { towers: seen, newlySeen: lane.intel.newlySeen };
+      return { ok: true, note: `Scanner deployed for ${cost} gold: ${Object.keys(seen).length} enemy towers seen as round ${state.round} opened.` };
+    }
     case "build": {
       if (!TOWER_TYPES.includes(a.tower)) return fail(`Unknown tower "${a.tower}". Options: ${TOWER_TYPES.join(", ")}.`);
       if (a.targeting && !TARGETINGS.includes(a.targeting)) return fail(`Unknown targeting "${a.targeting}".`);
@@ -112,7 +153,9 @@ function apply(state: DuelState, lane: Lane, a: Action): ActionResult {
       lane.gold -= cost;
       lane.totals.towerGold += cost;
       const id = lane.nextTowerId++;
-      lane.towers.push({ id, type: a.tower, x: a.x, y: a.y, level: 1, spec: null, targeting: a.targeting ?? "first", invested: cost, dmg: 0, kills: 0 });
+      // A tower with fixed targeting ignores whatever was asked for.
+      const targeting = TOWERS[a.tower].fixedTargeting ?? a.targeting ?? "first";
+      lane.towers.push({ id, type: a.tower, x: a.x, y: a.y, level: 1, spec: null, targeting, invested: cost, dmg: 0, kills: 0 });
       return { ok: true, note: `Built ${TOWERS[a.tower].name} #${id} at (${a.x},${a.y}) for ${cost}.`, towerId: id };
     }
     case "upgrade": {
@@ -145,7 +188,8 @@ function apply(state: DuelState, lane: Lane, a: Action): ActionResult {
     case "sell": {
       const idx = lane.towers.findIndex((t) => t.id === a.id);
       if (idx < 0) return fail(`You have no tower #${a.id}.`);
-      const refund = Math.floor(lane.towers[idx].invested * RULES.sellRefund);
+      const invested = lane.towers[idx].invested;
+      const refund = a.pricing === "whole-percent" ? defenceResale(invested) : Math.floor(invested * 0.7);
       lane.towers.splice(idx, 1);
       lane.gold += refund;
       lane.totals.refunds += refund;
@@ -155,6 +199,8 @@ function apply(state: DuelState, lane: Lane, a: Action): ActionResult {
       const t = lane.towers.find((t) => t.id === a.id);
       if (!t) return fail(`You have no tower #${a.id}.`);
       if (!TARGETINGS.includes(a.mode)) return fail(`Unknown targeting "${a.mode}". Options: ${TARGETINGS.join(", ")}.`);
+      const fixed = TOWERS[t.type].fixedTargeting;
+      if (fixed) return fail(`${TOWERS[t.type].name}s always target ${fixed}; that cannot be changed.`);
       t.targeting = a.mode;
       return { ok: true, note: `Tower #${t.id} now targets ${a.mode}.` };
     }
@@ -178,7 +224,7 @@ function apply(state: DuelState, lane: Lane, a: Action): ActionResult {
       return { ok: true, note: `Sending ${s.count * orders} ${UNITS[a.unit].name}${s.count * orders > 1 ? "s" : ""} for ${cost} gold (+${s.income * orders} income).` };
     }
     default:
-      return fail(`Unknown action type. Options: build, upgrade, sell, target, send.`);
+      return fail(`Unknown action type. Options: build, upgrade, sell, target, send, scan.`);
   }
 }
 
@@ -200,11 +246,15 @@ export function resolveRound(state: DuelState): RoundRecord {
   });
 
   const record: RoundRecord = { round, sides: [] };
+  // Thieves are paid from the defender's purse after its own payout, never pushing it below zero.
+  const theft = ([0, 1] as const).map((p) => Math.min(results[p].stolen, state.lanes[p].gold + results[p].bounty + state.lanes[p].income));
   for (const p of [0, 1] as const) {
     const lane = state.lanes[p];
     const r = results[p];
     lane.lives -= r.livesLost;
-    lane.gold += r.bounty + lane.income;
+    lane.gold += r.bounty + lane.income - theft[p] + theft[1 - p];
+    lane.totals.goldLost += theft[p];
+    lane.totals.goldStolen += theft[1 - p];
     lane.totals.bounty += r.bounty;
     state.lanes[1 - p].totals.livesTaken += r.leakedLives.send;
     for (const ts of r.towers) {
@@ -218,7 +268,7 @@ export function resolveRound(state: DuelState): RoundRecord {
   for (const p of [0, 1] as const) {
     const lane = state.lanes[p];
     record.sides.push({
-      battle: results[p], sent: lane.sends, sendSpent: lane.sendSpent,
+      battle: results[p], sent: lane.sends, sendSpent: lane.sendSpent, goldLost: theft[p], goldStolen: theft[1 - p],
       goldAfter: lane.gold, incomeAfter: lane.income, livesAfter: lane.lives,
       towerValue: lane.towers.reduce((s, t) => s + t.invested, 0),
     });
@@ -227,6 +277,17 @@ export function resolveRound(state: DuelState): RoundRecord {
     lane.committed = false;
   }
   state.history.push(record);
+  // Fog of war: each player learns the towers that struck the raiders it sent.
+  for (const p of [0, 1] as const) {
+    const intel = state.lanes[p].intel, theirs = state.lanes[1 - p].towers;
+    intel.newlySeen = [];
+    for (const id of results[1 - p].contacts) {
+      const t = theirs.find((x) => x.id === id);
+      if (!t) continue;
+      if (!intel.towers[id]) intel.newlySeen.push(id);
+      intel.towers[id] = { ...t, seenRound: round, via: "contact" };
+    }
+  }
   state.open = [openLane(state.lanes[0]), openLane(state.lanes[1])];
 
   const [a, b] = state.lanes;
@@ -265,7 +326,7 @@ export function forfeit(state: DuelState, loser: 0 | 1, reason: string): void {
 export function replayDuel(seed: number, log: [Action[], Action[]][], resolvedRounds: number): DuelState {
   const state = createDuel(seed);
   for (let r = 0; r < log.length && state.status === "planning"; r++) {
-    for (const p of [0, 1] as const) for (const a of log[r][p]) applyAction(state, p, a);
+    for (const p of [0, 1] as const) for (const a of log[r][p]) applyRecordedAction(state, p, a);
     if (r < resolvedRounds) resolveRound(state);
   }
   return state;

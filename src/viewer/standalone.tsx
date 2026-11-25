@@ -34,7 +34,7 @@ const levels: [number, number] = [Number(params.get("a") ?? 5), Number(params.ge
 let seed = Number(params.get("seed") ?? 0), s = seed ? botMatch(seed, ...levels) : null;
 for (let i = 1; !s && i < 40; i++) { const m = botMatch(i * 37, ...levels); if (m.history.length >= 12 || i === 39) { s = m; seed = i * 37; } }
 const feed: Feed = {
-  id: "standalone", seed, mode: "practice", status: "finished", resolvedRounds: s!.history.length, log: s!.log,
+  view: "full", id: "standalone", seed, mode: "practice", status: "finished", resolvedRounds: s!.history.length, log: s!.log,
   winner: s!.winner, endReason: s!.endReason, createdAt: Date.now(), finishedAt: Date.now(), players: [botPlayer(levels[0]), botPlayer(levels[1])], live: null,
 };
 createRoot(document.getElementById("root")!).render(<MatchViewer initial={feed} onReady={(pb, scene) => Object.assign(window, { __td: { pb, scene } })} />);

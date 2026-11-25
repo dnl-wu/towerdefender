@@ -3,7 +3,7 @@
 // simulation the server ran, so everything on screen is actual game state.
 import { battleResult, createBattle, stepBattle, type Battle, type Enemy, type Tower } from "../engine/battle.ts";
 import { RULES, TOWERS, UNITS, type TowerType, type UnitType } from "../engine/data.ts";
-import { applyAction, commit, createDuel, resolveRound, type Action, type DuelState, type RoundRecord } from "../engine/duel.ts";
+import { applyRecordedAction, commit, createDuel, resolveRound, type Action, type DuelState, type RoundRecord } from "../engine/duel.ts";
 import { baseWave, sendGroups, waveArchetype, type SpawnGroup } from "../engine/waves.ts";
 import type { Feed } from "./feed.ts";
 
@@ -17,7 +17,7 @@ export type Fx =
   | { kind: "shot"; tower: Tower; x: number; y: number; hits: { x: number; y: number; flying: boolean }[] }
   | { kind: "pulse"; tower: Tower }
   | { kind: "die"; x: number; y: number; unit: UnitType }
-  | { kind: "leak"; unit: UnitType; lives: number }
+  | { kind: "leak"; unit: UnitType; lives: number; loot: number }
   | { kind: "built"; id: number }
   | { kind: "upgraded"; id: number }
   | { kind: "sold"; x: number; y: number }
@@ -42,6 +42,8 @@ export interface Hud {
 }
 
 const TICK = 1 / RULES.tps;
+/** Battles play faster than real time; a live match that falls behind speeds up further to catch up. */
+const PLAYBACK = 1.6;
 
 export class Playback {
   feed: Feed;
@@ -98,6 +100,54 @@ export class Playback {
     this.reveal.clear();
   }
 
+  /**
+   * A live match seen by one of its players. The feed holds only your moves and
+   * the raiders sent at you, so only your lane is rebuilt exactly. Values that
+   * depend on the hidden lane (their lives, gold your goblins stole) are taken
+   * from the server after each round.
+   */
+  get laneMode(): boolean { return this.feed.view === "lane"; }
+  private get opp(): 0 | 1 { return (1 - this.side) as 0 | 1; }
+
+  /** Lane mode: the opponent's half of this replay only carries their sends, so it must never run out of gold for them. */
+  private prepareHidden(): void {
+    if (this.laneMode) this.duel.lanes[this.opp].gold = 1e9;
+  }
+
+  /**
+   * Score the round. In lane mode the stand-in lane has no towers, so it would
+   * lose every life; it is propped up while the round is scored and then given
+   * the real figure, so the stand-in value is never on screen.
+   */
+  private resolve(): RoundRecord {
+    const them = this.duel.lanes[this.opp], lives = them.lives;
+    if (this.laneMode) them.lives = 1e9;
+    const rec = resolveRound(this.duel);
+    if (this.laneMode) them.lives = lives;
+    this.settle(rec);
+    return rec;
+  }
+
+  /** Lane mode: replace what this replay cannot know with the settled values for the round just resolved. */
+  private settle(rec: RoundRecord): void {
+    const info = this.feed.lane;
+    if (!this.laneMode || !info) return;
+    const r = info.rounds[rec.round - 1];
+    if (!r) return;
+    const me = this.duel.lanes[this.side], them = this.duel.lanes[this.opp];
+    me.gold = r.goldAfter; me.income = r.incomeAfter; me.lives = r.livesAfter;
+    const before = rec.round > 1 ? info.rounds[rec.round - 2]?.opponentLivesAfter ?? RULES.startLives : RULES.startLives;
+    them.lives = r.opponentLivesAfter;
+    const mine = rec.sides[this.side], theirs = rec.sides[this.opp];
+    // The stand-in lane let every raider and goblin through; swap in what really happened.
+    me.totals.goldStolen += r.goldStolen - mine.goldStolen;
+    me.totals.livesTaken += r.livesTaken - theirs.battle.leakedLives.send;
+    mine.goldStolen = r.goldStolen;
+    mine.goldAfter = r.goldAfter; mine.incomeAfter = r.incomeAfter; mine.livesAfter = r.livesAfter;
+    theirs.livesAfter = r.opponentLivesAfter;
+    theirs.battle = { ...theirs.battle, livesLost: before - r.opponentLivesAfter, leakedLives: { base: theirs.battle.leakedLives.base, send: r.livesTaken } };
+  }
+
   get map() { return this.duel.map; }
   get battle(): Battle | null { return this.battles ? this.battles[this.side] : null; }
   get towers(): Tower[] { return this.duel.lanes[this.side].towers; }
@@ -106,24 +156,25 @@ export class Playback {
   private apply(p: 0 | 1, a: Action, show: boolean): void {
     const lane = this.duel.lanes[p], before = lane.gold;
     const sold = a.type === "sell" ? lane.towers.find((t) => t.id === a.id) : undefined;
-    const res = applyAction(this.duel, p, a);
+    const res = applyRecordedAction(this.duel, p, a);
     if (!res.ok) return;
     this.txns[p].push({ round: this.round, text: res.note, delta: lane.gold - before, payload: a });
     const notes = this.towerNotes[p];
     if (a.type === "build" && res.towerId !== undefined) {
       notes.set(res.towerId, [{ round: this.round, text: `Built for ${TOWERS[a.tower].levels[0].cost} gold` }]);
-      if (show && p === this.side) { this.reveal.set(res.towerId, this.clock + 0.3 + this.buildFor); this.buildFor += 0.4; this.fx.push({ kind: "built", id: res.towerId }); }
+      if (show && p === this.side) { this.reveal.set(res.towerId, this.clock + 0.2 + this.buildFor); this.buildFor += 0.25; this.fx.push({ kind: "built", id: res.towerId }); }
     } else if (a.type === "upgrade" || a.type === "target") {
       notes.get(a.id)?.push({ round: this.round, text: res.note.replace(/^.*#\d+ /, "").replace(/^is now /, "Upgraded to ").replace(/^now targets /, "Retargeted to ").replace(/^specialised into /, "Specialised: ") });
-      if (a.type === "upgrade" && show && p === this.side) { this.buildFor += 0.3; this.fx.push({ kind: "upgraded", id: a.id }); }
+      if (a.type === "upgrade" && show && p === this.side) { this.buildFor += 0.2; this.fx.push({ kind: "upgraded", id: a.id }); }
     } else if (a.type === "sell" && sold && show && p === this.side) this.fx.push({ kind: "sold", x: sold.x, y: sold.y });
   }
 
   private skipRound(): void {
     const acts = this.feed.log[this.round - 1];
+    this.prepareHidden();
     for (const p of [0, 1] as const) for (const a of acts[p]) this.apply(p, a, false);
     commit(this.duel, 0); commit(this.duel, 1);
-    this.lastRecord = resolveRound(this.duel);
+    this.lastRecord = this.resolve();
     this.round++;
   }
 
@@ -138,9 +189,10 @@ export class Playback {
     }
     this.buildFor = 0;
     const acts = this.feed.log[this.round - 1];
+    this.prepareHidden();
     for (const p of [0, 1] as const) for (const a of acts[p]) this.apply(p, a, true);
     this.phase = "build";
-    this.buildFor = Math.max(1.3, this.buildFor + 0.9);
+    this.buildFor = Math.max(1, this.buildFor + 0.6);
     const base = baseWave(this.duel.seed, this.round);
     this.groups = [[...base, ...sendGroups(this.duel.lanes[1].sends)], [...base, ...sendGroups(this.duel.lanes[0].sends)]];
   }
@@ -148,11 +200,12 @@ export class Playback {
   /** Advance by real seconds. */
   update(dt: number): void {
     const behind = this.feed.resolvedRounds - this.round;
-    const speed = this.feed.status === "active" ? (behind >= 3 ? 4 : behind >= 1 ? 2 : 1) : 1;
+    const speed = PLAYBACK * (this.feed.status === "active" ? (behind >= 3 ? 3 : behind >= 1 ? 1.6 : 1) : 1);
     this.clock += dt;
     this.phaseT += dt;
 
-    if (this.phase === "build" && this.phaseT >= this.buildFor / speed) {
+    // Towers are revealed one by one in real time; only catching up shortens that.
+    if (this.phase === "build" && this.phaseT >= (this.buildFor * PLAYBACK) / speed) {
       this.battles = [0, 1].map((p) => createBattle(this.duel.map, this.duel.lanes[p].towers, this.groups[p], this.round)) as [Battle, Battle];
       this.phase = "battle"; this.phaseT = 0; this.acc = 0;
     } else if (this.phase === "battle" && this.battles) {
@@ -163,7 +216,7 @@ export class Playback {
       }
       this.alpha = Math.min(1, this.acc / TICK);
       if (this.battles[this.side].done) this.finishRound();
-    } else if (this.phase === "result" && this.phaseT >= 3 / speed) {
+    } else if (this.phase === "result" && this.phaseT >= 3.2 / speed) {
       this.round++;
       this.enterRound();
     } else if (this.phase === "final" && this.feed.status === "finished" && this.phaseT >= 16) {
@@ -176,7 +229,8 @@ export class Playback {
     this.prev.clear();
     for (const e of mine.enemies) if (e.alive) this.prev.set(e.id, [e.x, e.y]);
     const events = stepBattle(mine);
-    if (!theirs.done) {
+    // In lane mode the other battle is a stand-in with no towers; it is never shown.
+    if (!theirs.done && !this.laneMode) {
       const before = theirs.livesLost;
       stepBattle(theirs);
       if (theirs.livesLost > before) this.lastLeakAt[1 - this.side] = this.clock;
@@ -190,7 +244,7 @@ export class Playback {
         this.fx.push({ kind: "shot", tower, x: ev.x, y: ev.y, hits });
       } else if (ev.e === "pulse") { const tower = this.towers.find((t) => t.id === ev.tower); if (tower) this.fx.push({ kind: "pulse", tower }); }
       else if (ev.e === "die") { const en = this.known.get(ev.id); if (en) this.fx.push({ kind: "die", x: ev.x, y: ev.y, unit: en.unit }); }
-      else if (ev.e === "leak") { const en = this.known.get(ev.id); this.lastLeakAt[this.side] = this.clock; if (en) this.fx.push({ kind: "leak", unit: en.unit, lives: ev.lives }); }
+      else if (ev.e === "leak") { const en = this.known.get(ev.id); this.lastLeakAt[this.side] = this.clock; if (en) this.fx.push({ kind: "leak", unit: en.unit, lives: ev.lives, loot: ev.loot }); }
     }
   }
 
@@ -199,7 +253,7 @@ export class Playback {
     for (const other of [a, b]) while (!other.done) stepBattle(other);
     const seen = battleResult(this.battles![this.side]);
     commit(this.duel, 0); commit(this.duel, 1);
-    this.lastRecord = resolveRound(this.duel);
+    this.lastRecord = this.resolve();
     const official = this.lastRecord.sides[this.side].battle;
     // The battle shown must be the battle that was scored. If this ever fires, the replay has drifted.
     if (official.livesLost !== seen.livesLost || official.bounty !== seen.bounty) console.warn("towerdefender: displayed battle differs from the scored one", { official, seen });
@@ -268,8 +322,11 @@ export class Playback {
     return {
       round: Math.min(shown ? this.round : d.round, RULES.maxRounds), maxRounds: RULES.maxRounds, phase: this.phase, replay: this.feed.status === "finished",
       theme: waveArchetype(d.seed, waveRound),
-      lives: num((p) => d.lanes[p].lives - (fighting ? this.battles![p].livesLost : 0)),
-      gold: num((p) => d.lanes[p].gold + (fighting ? this.battles![p].bounty : 0)),
+      // In lane mode the opponent's lane is hidden: their lives change only when the round settles.
+      lives: num((p) => d.lanes[p].lives - (fighting && !(this.laneMode && p === this.opp) ? this.battles![p].livesLost : 0)),
+      // While a battle runs, show bounties as they land and gold moving with each goblin, as the payout will settle it.
+      // What your own goblins steal is unknown until then in lane mode.
+      gold: num((p) => d.lanes[p].gold + (fighting ? this.battles![p].bounty - this.battles![p].stolen + (this.laneMode ? 0 : this.battles![1 - p].stolen) : 0)),
       income: num((p) => d.lanes[p].income),
       wave: { round: waveRound, theme: waveArchetype(d.seed, waveRound), forecast, entries },
       note, result, mood: [mood(0), mood(1)],

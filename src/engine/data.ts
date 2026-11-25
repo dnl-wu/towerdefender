@@ -1,14 +1,14 @@
 // All tunable game numbers live here. The rules handbook served to agents is
 // generated from this file, so the docs can never drift from the simulation.
 
-export type TowerType = "nailgun" | "mortar" | "harpoon" | "coil" | "flak" | "frost" | "relay";
-export type UnitType = "scuttler" | "runner" | "shellback" | "drone" | "hulk" | "gunship" | "colossus";
+export type TowerType = "nailgun" | "mortar" | "harpoon" | "coil" | "flak" | "frost" | "relay" | "sentinel";
+export type UnitType = "scuttler" | "runner" | "goblin" | "shellback" | "drone" | "hulk" | "gunship" | "colossus";
 export type Targeting = "first" | "last" | "strong" | "weak" | "close";
 export type DamageType = "kinetic" | "explosive" | "energy" | "pierce" | "none";
 export type Spec = "a" | "b";
 
-export const TOWER_TYPES: TowerType[] = ["nailgun", "mortar", "harpoon", "coil", "flak", "frost", "relay"];
-export const UNIT_TYPES: UnitType[] = ["scuttler", "runner", "shellback", "drone", "hulk", "gunship", "colossus"];
+export const TOWER_TYPES: TowerType[] = ["nailgun", "mortar", "harpoon", "coil", "flak", "frost", "relay", "sentinel"];
+export const UNIT_TYPES: UnitType[] = ["scuttler", "runner", "goblin", "shellback", "drone", "hulk", "gunship", "colossus"];
 export const TARGETINGS: Targeting[] = ["first", "last", "strong", "weak", "close"];
 
 export interface TowerStats {
@@ -47,6 +47,8 @@ export interface TowerDef {
   dmgType: DamageType;
   levels: [TowerStats, TowerStats, TowerStats];
   specs: Record<Spec, TowerStats & { name: string; desc: string }>;
+  /** Targeting the tower is built with and can never change. */
+  fixedTargeting?: Targeting;
 }
 
 export const TOWERS: Record<TowerType, TowerDef> = {
@@ -155,6 +157,22 @@ export const TOWERS: Record<TowerType, TowerDef> = {
       b: { name: "Uplink", desc: "Range bonus rises to 35%.", cost: 150, dmg: 0, rate: 0, range: 0, buffDmg: 0.25, buffRange: 0.35 },
     },
   },
+  sentinel: {
+    name: "Sentinel",
+    role: "The counter to goblins. Always fires at the enemy with the least health left, so it picks thieves out of a crowd and finishes off anything wounded. Long reach, hits ground and air. Its targeting cannot be changed, and armour blunts its small rounds.",
+    targets: "both",
+    dmgType: "kinetic",
+    fixedTargeting: "weak",
+    levels: [
+      { cost: 45, dmg: 7, rate: 2.5, range: 3.2 },
+      { cost: 40, dmg: 11, rate: 2.6, range: 3.4 },
+      { cost: 70, dmg: 16, rate: 2.8, range: 3.8 },
+    ],
+    specs: {
+      a: { name: "Picket", desc: "Fires twice as fast.", cost: 120, dmg: 16, rate: 5.6, range: 3.8 },
+      b: { name: "Longwatch", desc: "Heavier rounds with much longer reach.", cost: 120, dmg: 24, rate: 2.8, range: 5.4 },
+    },
+  },
 };
 
 export interface UnitDef {
@@ -174,6 +192,10 @@ export interface UnitDef {
   threat: number;
   /** Fraction of slow effects ignored. */
   slowResist: number;
+  /** Towers ignore it while any other enemy is in range, unless they target the weakest. */
+  sneaky?: boolean;
+  /** Thieves: gold taken from the defender's payout for each one that reaches the core. */
+  loot?: { base: number; perRound: number };
   send: {
     /** Units delivered per order. */
     count: number;
@@ -189,53 +211,61 @@ export const UNITS: Record<UnitType, UnitDef> = {
   scuttler: {
     name: "Scuttler",
     desc: "Weak and numerous. Punishes a defence with no splash.",
-    hp: 22, shield: 0, armor: 0, speed: 1.6, flying: false, lives: 1, bounty: 1, threat: 1, slowResist: 0,
+    hp: 22, shield: 0, armor: 0, speed: 1.6, flying: false, lives: 1, bounty: 2, threat: 1, slowResist: 0,
     send: { count: 5, cost: 20, income: 5, unlock: 1 },
   },
   runner: {
     name: "Runner",
     desc: "Fast. Slips past slow-firing towers and short kill zones.",
-    hp: 42, shield: 0, armor: 0, speed: 2.8, flying: false, lives: 1, bounty: 2, threat: 2, slowResist: 0,
+    hp: 42, shield: 0, armor: 0, speed: 2.8, flying: false, lives: 1, bounty: 3, threat: 2, slowResist: 0,
     send: { count: 3, cost: 25, income: 5, unlock: 1 },
+  },
+  goblin: {
+    name: "Goblin",
+    desc: "A sneaky thief with almost no health. Towers ignore it while anything else is in range, unless they target the weakest. It costs no lives, but every goblin that reaches the core steals gold from the defender's payout and hands it to the sender.",
+    hp: 10, shield: 0, armor: 0, speed: 3.2, flying: false, lives: 0, bounty: 1, threat: 1, slowResist: 0,
+    sneaky: true,
+    loot: { base: 6, perRound: 1 },
+    send: { count: 6, cost: 30, income: 2, unlock: 2 },
   },
   shellback: {
     name: "Shellback",
     desc: "Carries a shield that halves non-energy damage until it is broken.",
-    hp: 70, shield: 90, armor: 0, speed: 1.3, flying: false, lives: 1, bounty: 5, threat: 5, slowResist: 0,
+    hp: 70, shield: 90, armor: 0, speed: 1.3, flying: false, lives: 1, bounty: 7, threat: 5, slowResist: 0,
     send: { count: 2, cost: 40, income: 8, unlock: 2 },
   },
   drone: {
     name: "Drone",
     desc: "Flies in a straight line from spawn to core, ignoring the path.",
-    hp: 55, shield: 0, armor: 0, speed: 1.9, flying: true, lives: 1, bounty: 3, threat: 3, slowResist: 0,
+    hp: 55, shield: 0, armor: 0, speed: 1.9, flying: true, lives: 1, bounty: 5, threat: 3, slowResist: 0,
     send: { count: 3, cost: 40, income: 7, unlock: 3 },
   },
   hulk: {
     name: "Hulk",
     desc: "Slow and heavily armoured. Shrugs off small hits.",
-    hp: 260, shield: 0, armor: 4, speed: 0.9, flying: false, lives: 2, bounty: 6, threat: 6, slowResist: 0,
+    hp: 260, shield: 0, armor: 4, speed: 0.9, flying: false, lives: 2, bounty: 9, threat: 6, slowResist: 0,
     send: { count: 1, cost: 50, income: 8, unlock: 4 },
   },
   gunship: {
     name: "Gunship",
     desc: "Armoured flyer. Needs dedicated anti-air or piercing damage.",
-    hp: 300, shield: 0, armor: 3, speed: 1.1, flying: true, lives: 2, bounty: 8, threat: 8, slowResist: 0,
+    hp: 300, shield: 0, armor: 3, speed: 1.1, flying: true, lives: 2, bounty: 12, threat: 8, slowResist: 0,
     send: { count: 1, cost: 90, income: 12, unlock: 7 },
   },
   colossus: {
     name: "Colossus",
     desc: "Boss. Huge health, heavy armour, and it ignores half of every slow.",
-    hp: 850, shield: 0, armor: 5, speed: 0.7, flying: false, lives: 6, bounty: 30, threat: 30, slowResist: 0.5,
+    hp: 850, shield: 0, armor: 5, speed: 0.7, flying: false, lives: 6, bounty: 45, threat: 30, slowResist: 0.5,
     send: { count: 1, cost: 250, income: 25, unlock: 9 },
   },
 };
 
 export const RULES = {
-  startGold: 200,
+  startGold: 300,
   startLives: 20,
-  baseIncome: 40,
+  baseIncome: 60,
   maxRounds: 24,
-  sellRefund: 0.7,
+  sellRefundPercent: 70,
   highGroundRange: 0.75,
   powerTileDmg: 0.25,
   /** Chained arcs lose this fraction of damage on every jump. */
@@ -250,19 +280,39 @@ export const RULES = {
 
 /** Enemy health and shield multiplier for a round. Sent units scale the same way. */
 export function hpScale(round: number): number {
+  // Gentle while players find their feet, then steep: a defence that stopped improving falls behind fast.
   let m = 1;
-  for (let i = 1; i < round; i++) m *= 1.09;
+  for (let i = 1; i < round; i++) m *= i < SCALE.kneeRound ? SCALE.early : SCALE.late;
   return Math.round(m * 1000) / 1000;
+}
+
+/** Enemy health growth per round, before and after the knee. Tuned with `pnpm solo` and `pnpm balance`. */
+export const SCALE = { early: 1.12, late: 1.13, kneeRound: 8 };
+
+/** One Scanner flight: dear early, when there is little to see, and nearly free from round 11. */
+export function scannerPrice(round: number): number {
+  return Math.max(5, 45 - 4 * (round - 1));
+}
+
+/** Gold one thief takes from the defender's payout if it reaches the core. Sent units scale with the round, and so does their haul. */
+export function lootFor(unit: UnitType, round: number): number {
+  const l = UNITS[unit].loot;
+  return l ? l.base + l.perRound * round : 0;
+}
+
+/** What selling a tower returns: 70% of everything spent on it, rounded down. */
+export function defenceResale(invested: number): number {
+  return Math.floor(invested * RULES.sellRefundPercent / 100);
 }
 
 /** Most gold a player may spend on sends in one round. */
 export function sendCap(round: number): number {
-  return 40 + 20 * round;
+  return 50 + 20 * round;
 }
 
 /** Threat budget of the neutral wave both players face in a round. */
 export function waveBudget(round: number): number {
-  return Math.round(10 + 4 * (round - 1) + 0.2 * (round - 1) * (round - 1));
+  return Math.round(14 + 6 * (round - 1) + 0.3 * (round - 1) * (round - 1));
 }
 
 /** Multiplier applied to a hit against a shield. */

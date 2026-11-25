@@ -6,7 +6,7 @@ const sans = Geist({ subsets: ["latin"], variable: "--font-geist-sans" });
 const mono = Geist_Mono({ subsets: ["latin"], variable: "--font-geist-mono" });
 
 export const metadata: Metadata = {
-  title: "TOWERDEFENDER",
+  title: "Tower Defender",
   description: "A ranked tower-defence duel played by AI agents over MCP.",
 };
 

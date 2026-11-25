@@ -2,7 +2,7 @@
 // per request, bound to the authenticated player.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { TARGETINGS, TOWER_TYPES, UNIT_TYPES } from "../engine/data.ts";
+import { RULES, TARGETINGS, TOWER_TYPES, UNIT_TYPES, scannerPrice } from "../engine/data.ts";
 import type { Action } from "../engine/duel.ts";
 import { roundReport } from "../engine/report.ts";
 import { rulesHandbook } from "../engine/rules.ts";
@@ -20,7 +20,7 @@ Loop:
 1. get_playbook — notes from your operator and from your past matches. Read them first.
 2. get_rules — once per session. Every number in the game is in there.
 3. find_match — starts or resumes a match and returns the map and your opening state.
-4. Each round: decide, then call take_turn with all your actions in one call. It ends your turn, waits for the round to resolve and returns a report plus your new state. scout_opponent shows their board when you need it.
+4. Each round: decide, then call take_turn with all your actions in one call. It ends your turn, waits for the round to resolve and returns a report plus your new state. Their board, gold and income are hidden (fog of war): scout_opponent lists what your raiders and Scanners have revealed, and deploy_scanner buys a full look at their base as this round opened, leaving your turn open.
 5. When the match ends, read get_debrief and save what you learned with save_playbook.
 
 Planning is on a clock. Batch your actions; do not spend a call per tower.`;
@@ -159,18 +159,33 @@ export function buildMcpServer(user: User): McpServer {
 
   server.registerTool("scout_opponent", {
     title: "Scout the opponent",
-    description: "The opponent's full board as it stood when this round opened: every tower, their damage against ground and air, lives, gold and income. Use it to choose sends they cannot handle.",
+    description: "Everything you know about the opponent's base: towers that struck your raiders, and towers your Scanners saw, each with the round it was last seen. Their gold and income are private. Free.",
     annotations: { readOnlyHint: true },
   }, async () => {
     const c = current();
     if (typeof c === "string") return fail(c);
     const { board, ...view } = scoutView(c.m.state, c.p);
-    return ok(view, `Opponent's board:\n${board}`);
+    return ok(view, `Their base as far as you know it:\n${board}`);
+  });
+
+  server.registerTool("deploy_scanner", {
+    title: "Deploy a Scanner",
+    description: `Buy a single-use Scanner (${scannerPrice(1)} gold in round 1, ${scannerPrice(1) - scannerPrice(2)} less each round, ${scannerPrice(RULES.maxRounds)} from round 11). It reveals the opponent's whole base as this round opened and updates your intel. Your turn stays open so you can act on it. One per round.`,
+    inputSchema: { round: z.number().int().positive().optional().describe("Optional guard: the round you mean to scan. If the match has moved on, nothing is bought.") },
+  }, async ({ round: wanted }) => {
+    const c = current();
+    if (typeof c === "string") return fail(c);
+    const { m, p } = c;
+    if (wanted !== undefined && wanted !== m.state.round) return fail(`You asked to scan round ${wanted}, but round ${m.state.round} is being planned. Nothing was bought.`);
+    const [res] = submit(m, p, [{ type: "scan" }], false).results;
+    if (!res.ok) return fail(res.error);
+    const { board, ...view } = scoutView(m.state, p);
+    return ok({ result: res.note, goldLeft: m.state.lanes[p].gold, ...view }, `Their base as round ${m.state.round} opened:\n${board}`);
   });
 
   server.registerTool("take_turn", {
     title: "Take your turn",
-    description: "Apply a list of actions in order (build, upgrade, sell, target, send), then end your turn. Each action reports success or a reason for rejection; rejected actions cost nothing. When both players have ended their turn the round is fought, and this returns the round report and your next state. Set end_turn to false to apply actions and keep planning.",
+    description: "Apply a list of actions in order (build, upgrade, sell, target, send), then end your turn. Selling a tower returns 70% of everything spent on it, rounded down; the quote is resaleGold in your tower list. Each action reports success or a reason for rejection; rejected actions cost nothing. When both players have ended their turn the round is fought, and this returns the round report and your next state. Set end_turn to false to apply actions and keep planning.",
     inputSchema: {
       actions: z.array(actionSchema).max(60).describe("Applied in order. May be empty."),
       end_turn: z.boolean().optional().describe("Default true."),
@@ -256,7 +271,7 @@ export function buildMcpServer(user: User): McpServer {
       role: "user",
       content: {
         type: "text",
-        text: `Play one ${mode ?? "ranked"} match of TOWERDEFENDER to the end. Read your playbook and the rules first. Batch each round into a single take_turn call. When the match is over, read the debrief and save an improved playbook with a one-line note on what you changed.`,
+        text: `Play one ${mode ?? "ranked"} match of TOWERDEFENDER to the end. Read your playbook and the rules first. Their base is hidden: use scout_opponent and, when it is worth the gold, deploy_scanner. Batch each round into a single take_turn call. When the match is over, read the debrief and save an improved playbook with a one-line note on what you changed.`,
       },
     }],
   }));

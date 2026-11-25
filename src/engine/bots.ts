@@ -1,6 +1,7 @@
-import { TOWERS, UNITS, sendCap, type TowerType, type UnitType } from "./data.ts";
-import { baseStats, runBattle, type Tower } from "./battle.ts";
+import { RULES, TOWERS, UNITS, UNIT_TYPES, lootFor, scannerPrice, sendCap, type TowerType, type UnitType } from "./data.ts";
+import { runBattle, type Tower } from "./battle.ts";
 import { applyAction, type DuelState, type Lane } from "./duel.ts";
+import { knownTowers } from "./view.ts";
 import { airCoverage, isBuildable, pathCoverage, type GameMap } from "./map.ts";
 import { Rng, hashSeed } from "./rng.ts";
 import { baseWave, sendGroups, summarizeWave, type SpawnGroup } from "./waves.ts";
@@ -22,18 +23,21 @@ export const BOTS: BotDef[] = [
   { level: 5, handle: "tyrant", name: "Tyrant", rating: 1500, tagline: "Finds the gap in your wall and sends through it." },
 ];
 
-/** What a player may know about the opponent while planning: the board as it stood when the round opened. */
+/** What a player may know about the opponent while planning: the same fog-of-war intel an agent gets. */
 export interface OpponentSnapshot {
+  /** Towers it has seen, as last seen. */
   towers: Tower[];
   lives: number;
-  income: number;
-  gold: number;
   lastSent: { unit: UnitType; orders: number }[];
 }
 
 export function snapshotOpponent(state: DuelState, player: 0 | 1): OpponentSnapshot {
   const last = state.history[state.history.length - 1];
-  return { ...state.open[1 - player], lastSent: last ? last.sides[1 - player].sent : [] };
+  return {
+    towers: knownTowers(state, player).map(({ seenRound: _r, via: _v, ...t }) => t),
+    lives: state.open[1 - player].lives,
+    lastSent: last ? last.sides[1 - player].sent : [],
+  };
 }
 
 function tileScore(map: GameMap, x: number, y: number, type: TowerType): number {
@@ -58,8 +62,13 @@ function rankedTiles(map: GameMap, lane: Lane, type: TowerType): { x: number; y:
   return out.sort((a, b) => b.score - a.score || a.y - b.y || a.x - b.x);
 }
 
+/** How the bots price stolen gold against lost lives when weighing a defence or an attack. */
+const GOLD_PER_LIFE = 12;
+/** What a leak costs the defender: lives, plus any gold thieves carried off. */
+const pain = (r: { livesLost: number; stolen: number }) => r.livesLost + r.stolen / GOLD_PER_LIFE;
+
 const COUNTER: Record<UnitType, TowerType> = {
-  scuttler: "mortar", runner: "nailgun", shellback: "coil", drone: "flak", hulk: "harpoon", gunship: "flak", colossus: "harpoon",
+  scuttler: "mortar", runner: "nailgun", goblin: "sentinel", shellback: "coil", drone: "flak", hulk: "harpoon", gunship: "flak", colossus: "harpoon",
 };
 
 class BotTurn {
@@ -99,7 +108,7 @@ class BotTurn {
 
   pickSpec(t: Tower): "a" | "b" {
     // A sensible default per tower; top bots are not trying to be clever here.
-    const pref: Record<TowerType, "a" | "b"> = { nailgun: "a", mortar: "a", harpoon: "b", coil: "a", flak: "a", frost: "b", relay: "a" };
+    const pref: Record<TowerType, "a" | "b"> = { nailgun: "a", mortar: "a", harpoon: "b", coil: "a", flak: "a", frost: "b", relay: "a", sentinel: "a" };
     return this.level >= 5 ? pref[t.type] : this.rng.chance(0.5) ? "a" : "b";
   }
 
@@ -124,11 +133,11 @@ class BotTurn {
   defendBySimulation(extra: SpawnGroup[], tolerance: number) {
     for (let i = 0; i < 14; i++) {
       const res = this.simulate(extra);
-      if (res.livesLost <= tolerance) return;
+      if (pain(res) <= tolerance) return;
       let worst: UnitType | null = null;
       let worstLives = 0;
       for (const u of Object.keys(res.leaked) as UnitType[]) {
-        const lives = (res.leaked[u] ?? 0) * UNITS[u].lives;
+        const lives = (res.leaked[u] ?? 0) * (UNITS[u].lives + lootFor(u, this.state.round) / GOLD_PER_LIFE);
         if (lives > worstLives) {
           worst = u;
           worstLives = lives;
@@ -147,17 +156,23 @@ class BotTurn {
   }
 }
 
-/** Pick the send the opponent's board is worst equipped for. */
-function weakestPoint(opp: OpponentSnapshot, round: number, rng: Rng): UnitType {
-  const count = (type: TowerType) => opp.towers.filter((t) => t.type === type).length;
-  const antiAir = opp.towers.filter((t) => TOWERS[t.type].targets !== "ground" && t.type !== "frost" && t.type !== "relay");
-  const airDps = antiAir.reduce((s, t) => s + baseStats(t).dmg * baseStats(t).rate * (t.type === "flak" ? 2 : 1), 0);
-  const options: UnitType[] = [];
-  if (round >= UNITS.drone.send.unlock && airDps < 25 * round) options.push(round >= UNITS.gunship.send.unlock && count("flak") + count("harpoon") < 2 ? "gunship" : "drone");
-  if (round >= UNITS.hulk.send.unlock && count("harpoon") === 0) options.push("hulk");
-  if (round >= UNITS.shellback.send.unlock && count("coil") === 0) options.push("shellback");
-  if (count("mortar") === 0) options.push("scuttler");
-  return options.length ? rng.pick(options) : "scuttler";
+/** Try each affordable attack against the opponent's round-opening board and pick the one that hurts most. */
+function chooseAttack(state: DuelState, opp: OpponentSnapshot, budget: number): UnitType {
+  let best: UnitType = "scuttler", bestScore = -Infinity;
+  const neutral = baseWave(state.seed, state.round);
+  for (const unit of UNIT_TYPES) {
+    const { cost, income, unlock } = UNITS[unit].send;
+    const orders = Math.floor(budget / cost);
+    if (!orders || state.round < unlock) continue;
+    const groups = [...neutral, ...sendGroups([{ unit, orders }])];
+    const battle = runBattle(state.map, opp.towers, groups, state.round);
+    // A point of permanent income matters less as the round limit approaches.
+    const incomeWeight = Math.min(4, RULES.maxRounds - state.round) / 40;
+    // Stolen gold counts twice: it comes off their payout and onto ours.
+    const score = battle.livesLost + (2 * battle.stolen) / GOLD_PER_LIFE + incomeWeight * orders * income;
+    if (score > bestScore) { best = unit; bestScore = score; }
+  }
+  return best;
 }
 
 /**
@@ -203,8 +218,13 @@ export function playBotTurn(state: DuelState, player: 0 | 1, level: number, opp:
   }
   turn.defendBySimulation(expected, level >= 5 ? 0 : 1);
   const reserve = level >= 5 ? 0.1 : 0.25;
-  const unit = level >= 5 ? weakestPoint(opp, round, rng) : "scuttler";
-  turn.send(unit, lane.gold * (1 - reserve));
+  // Tyrant buys a Scanner once it is cheap next to its purse, then plans its attack on what it saw.
+  if (level >= 5 && round >= 3 && lane.gold >= Math.max(90, 10 * scannerPrice(round)) && applyAction(state, player, { type: "scan" }).ok) {
+    opp = snapshotOpponent(state, player);
+  }
+  const attackBudget = Math.min(lane.gold * (1 - reserve), sendCap(round));
+  const unit = chooseAttack(state, opp, attackBudget);
+  turn.send(unit, attackBudget);
   if (level >= 5) turn.send("scuttler", lane.gold * 0.8);
   // Leftover gold goes into upgrades rather than sitting idle.
   if (lane.gold > 150) turn.upgrade();

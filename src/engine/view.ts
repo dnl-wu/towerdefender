@@ -1,8 +1,9 @@
-// What an agent is allowed to see. Everything here reads the opponent through
-// `state.open`, never the live lane, so a view can never leak hidden moves.
-import { RULES, TOWERS, UNITS, UNIT_TYPES, hpScale, sendCap, type TowerType, type UnitType } from "./data.ts";
+// What an agent is allowed to see. The opponent is read only through the
+// player's own intel (fog of war), never their lane, so a view cannot leak
+// their towers, gold, income or this round's moves.
+import { RULES, TOWERS, UNITS, UNIT_TYPES, defenceResale, hpScale, lootFor, scannerPrice, sendCap, type TowerType, type UnitType } from "./data.ts";
 import { effectiveStats, type Tower } from "./battle.ts";
-import type { DuelState } from "./duel.ts";
+import type { DuelState, SeenTower } from "./duel.ts";
 import { pathCoverage, renderAscii, type GameMap } from "./map.ts";
 import { baseWave, summarizeWave, waveArchetype } from "./waves.ts";
 
@@ -15,7 +16,7 @@ function towerView(t: Tower, map: GameMap, all: Tower[]) {
     targeting: t.targeting,
     range: Math.round(s.range * 100) / 100,
     dps: Math.round(s.dmg * s.rate * 10) / 10,
-    invested: t.invested, lifetimeDamage: t.dmg, kills: t.kills,
+    invested: t.invested, resaleGold: defenceResale(t.invested), lifetimeDamage: t.dmg, kills: t.kills,
   };
 }
 
@@ -49,10 +50,28 @@ export function mapView(map: GameMap) {
   };
 }
 
+/** An opponent tower as this player last saw it: no lifetime stats or gold invested, which were never visible. */
+function seenView(t: SeenTower, map: GameMap, known: Tower[]) {
+  const s = effectiveStats(t, map, known);
+  const def = TOWERS[t.type];
+  return {
+    id: t.id, type: t.type, x: t.x, y: t.y,
+    level: t.spec ? `spec ${t.spec} (${def.specs[t.spec].name})` : t.level,
+    targeting: t.targeting,
+    range: Math.round(s.range * 100) / 100,
+    dps: Math.round(s.dmg * s.rate * 10) / 10,
+    seenRound: t.seenRound, seenBy: t.via,
+  };
+}
+
+export function knownTowers(state: DuelState, player: 0 | 1): SeenTower[] {
+  return Object.values(state.lanes[player].intel.towers).sort((a, b) => a.id - b.id);
+}
+
 export function stateView(state: DuelState, player: 0 | 1) {
   const me = state.lanes[player];
-  const opp = state.open[1 - player];
   const last = state.history[state.history.length - 1];
+  const known = knownTowers(state, player);
   return {
     round: state.round,
     maxRounds: RULES.maxRounds,
@@ -64,13 +83,16 @@ export function stateView(state: DuelState, player: 0 | 1) {
       towers: me.towers.map((t) => towerView(t, state.map, me.towers)),
     },
     opponent: {
-      note: "As of the start of this round. Call scout_opponent for their full board.",
-      lives: opp.lives, income: opp.income, gold: opp.gold, towers: opp.towers.length,
+      note: "Fog of war. Their lives and what they sent at you are public. Their gold, income and board are private: you know only towers that struck your raiders or that a Scanner saw. Call scout_opponent for what you know.",
+      lives: state.open[1 - player].lives,
+      knownTowers: known.length,
       sentAtYouLastRound: last ? last.sides[1 - player].sent : [],
     },
+    scanner: { cost: scannerPrice(state.round), boughtThisRound: me.lastScanRound === state.round, lastScanRound: me.lastScanRound || null, tool: "deploy_scanner" },
     incomingWaves: forecast(state),
     sendShop: UNIT_TYPES.map((u: UnitType) => ({
       unit: u, unitsPerOrder: UNITS[u].send.count, cost: UNITS[u].send.cost, incomePerOrder: UNITS[u].send.income,
+      ...(UNITS[u].loot ? { stealsPerUnitThisRound: lootFor(u, state.round) } : {}),
       available: state.round >= UNITS[u].send.unlock, unlocksRound: UNITS[u].send.unlock,
     })),
     board: renderAscii(state.map, me.towers),
@@ -78,23 +100,27 @@ export function stateView(state: DuelState, player: 0 | 1) {
 }
 
 export function scoutView(state: DuelState, player: 0 | 1) {
-  const opp = state.open[1 - player];
+  const known = knownTowers(state, player);
   const byType: Partial<Record<TowerType, number>> = {};
-  for (const t of opp.towers) byType[t.type] = (byType[t.type] ?? 0) + 1;
+  for (const t of known) byType[t.type] = (byType[t.type] ?? 0) + 1;
   const canHit = (kind: "air" | "ground") =>
-    opp.towers
+    known
       .filter((t) => t.type !== "relay" && t.type !== "frost" && (TOWERS[t.type].targets === "both" || TOWERS[t.type].targets === kind))
       .reduce((sum, t) => {
-        const s = effectiveStats(t, state.map, opp.towers);
+        const s = effectiveStats(t, state.map, known);
         return sum + s.dmg * s.rate;
       }, 0);
+  const me = state.lanes[player];
   return {
-    note: "Their board as it stood when this round opened. Anything they do this round is hidden until it resolves.",
-    lives: opp.lives, income: opp.income, gold: opp.gold,
-    towersByType: byType,
-    dpsAgainstGround: Math.round(canHit("ground")),
-    dpsAgainstAir: Math.round(canHit("air")),
-    towers: opp.towers.map((t) => towerView(t, state.map, opp.towers)),
-    board: renderAscii(state.map, opp.towers),
+    note: me.lastScanRound === state.round
+      ? `Your Scanner saw their whole base as round ${state.round} opened. Changes they make this round are hidden.`
+      : "Only towers that struck your raiders, or that a Scanner saw, are listed, each with the round it was last seen. Towers that never fired at your raiders stay hidden, and anything here may since have been upgraded or sold. Their gold and income are private.",
+    lives: state.open[1 - player].lives,
+    lastScanRound: me.lastScanRound || null,
+    knownTowersByType: byType,
+    knownDpsAgainstGround: Math.round(canHit("ground")),
+    knownDpsAgainstAir: Math.round(canHit("air")),
+    towers: known.map((t) => seenView(t, state.map, known)),
+    board: renderAscii(state.map, known),
   };
 }

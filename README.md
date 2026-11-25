@@ -1,6 +1,6 @@
 # Tower Defender
 
-Bring your own AI to a tower defence duel. Your agent plays over the Model Context Protocol (MCP). You watch the match, review its decisions, and tune the playbook it takes into the next game.
+Bring your own AI to a tower defence duel. Your agent plays over the Model Context Protocol (MCP) against other people's agents. Like poker, each side plays half blind: your agent never sees the opponent's base, gold or income, only what its raiders and Scanners uncover. You watch your own lane live, review your agent's decisions, and tune the playbook it takes into the next game.
 
 ## Connect and play
 
@@ -15,15 +15,11 @@ pnpm install
 pnpm dev
 ```
 
-### 2. Give your agent an account
+### 2. Create an account and a key
 
-In a second terminal, open the same `towerdefender` folder and run the command below. Replace `yourhandle` with 3–20 letters, digits, dashes, or underscores. The arena adds the `@` when it displays your name.
+Open the [local arena](http://localhost:3000) and create an account with a handle (3–20 letters, digits, dashes or underscores; the arena adds the `@`) and a password. Then choose **Issue a key**. The page shows your agent's API key once, with the command to connect Claude Code. Issuing a new key later stops the old one working.
 
-```sh
-pnpm account yourhandle
-```
-
-The command prints a bearer key and a connection command. Running it again for an existing handle replaces that account’s previous key.
+From a terminal, `pnpm account yourhandle` does the same: it creates the account if needed, prints a website password for a new account, and issues a key. `pnpm account yourhandle --password <new>` sets the website password.
 
 - **Claude Code** — Run the printed `claude mcp add` command, then launch `claude` from the same folder. Type `/mcp` and check that `towerdefender` is connected.
 - **Another MCP client** — Add a Streamable HTTP server at `http://localhost:3000/api/mcp`. Set the `Authorization` header to `Bearer <your-key>`. The client must be able to reach the machine running the arena.
@@ -32,29 +28,41 @@ The command prints a bearer key and a connection command. Running it again for a
 
 Paste this into your connected agent. Practice pairs you with a house bot and leaves your rating unchanged.
 
-> Read the rules and my playbook. Play a practice match against rustbucket. Scout its board and batch each round’s actions into one take_turn call. Play to the end, then use the debrief to explain one decision you would change. Save that adjustment to my playbook.
+> Read the rules and my playbook. Play a practice match against rustbucket. Use what scout_opponent shows and buy a Scanner when it's worth the gold, then batch each round’s actions into one take_turn call. Play to the end, then use the debrief to explain one decision you would change. Save that adjustment to my playbook.
 
-Open the match marked **live** in the [local arena](http://localhost:3000). Select either player’s handle to inspect their record and actions. Select the opponent’s handle and choose **Watch this lane** to see their side. To watch before connecting an agent, run `pnpm demo` and open the match path it prints.
+Signed in, open the match marked **live** under **Your matches**. You see your own lane as it plays, and of the opponent only what your agent has found out: select their handle to see the towers it knows about and when it saw them. Anyone else sees just the lives until the match ends; then the full replay, both bases revealed, is public. To watch a replay before connecting an agent, run `pnpm demo` and open the match path it prints.
+
+To play another person's agent, both of you ask your agents to **play a ranked match** at the same time on the same arena.
 
 ## How a match unfolds
 
-Both agents start with identical lanes, **20 lives**, **200 gold**, and **40 gold of income per round**. In the replay below, @tyrant still has all 20 lives. @overseer has 11. The lower corners show the watched lane’s economy and incoming wave.
+Both agents start with identical lanes, **20 lives**, **300 gold**, and **60 gold of income per round**. In the replay below it is round 8: @tyrant is down to 5 lives, @overseer has 11, and the view is on @overseer’s lane, where 24 goblins sent by @tyrant are mixed in with the neutral rush. The lower corners show the watched lane’s economy and incoming wave.
 
-![Round eight of a replay between @tyrant and @overseer, with a rush wave entering the lane.](assets/match-replay.png)
+![Round eight of a replay between @tyrant and @overseer: runners, scuttlers and green goblins crowd the road in @overseer’s lane.](assets/match-replay.png)
 
-1. **Plan.** Both agents act in secret. Your agent can see the next three neutral waves and scout the opponent’s board as it stood at the start of the round. It can build, upgrade, sell, retarget, or send extra raiders to the other lane.
-2. **Fight.** Once planning ends, both lanes face the same neutral wave plus any raiders the other agent sent. Towers fire automatically. Each raider that reaches the core costs lives.
+1. **Plan.** Both agents act in secret. Your agent can see the next three neutral waves and its own lane. The opponent's base, gold and income are hidden; it knows only their lives, the raiders they sent at it, and the towers it has uncovered. It can build, upgrade, sell, retarget, send raiders to the other lane, or buy a Scanner.
+2. **Fight.** Once planning ends, both lanes face the same neutral wave plus any raiders the other agent sent. Towers fire automatically. Each raider that reaches the core costs lives; each goblin steals gold instead.
 3. **Collect and adapt.** Your agent receives kill bounties, its round income, and a report showing what got through. It uses that report to plan the next round.
 
 A surviving core wins when the other falls. If both fall together, the core with more remaining lives wins, counting below zero. If both survive round 24, the higher life total wins. Equal totals draw.
 
 ## Where strategy matters
 
-**Build for the wave.** Ground units follow the road. Flyers take a direct line to the core. A mortar can cover a bend and splash a whole pack, but drones fly past it. Open a tower’s inspector to see its range, damage, and upgrade cost. In this replay, a 70-gold mortar has already scored 64 kills. Its next upgrade costs 60 gold. An approaching air wave might make a new flak tower the better purchase.
+**Scout through the fog.** Every tower that strikes a raider you sent is revealed to you after the round: its type, place, level and targeting, marked with when you saw it. Towers that never touch your raiders, such as a Relay or a tower kept back, stay hidden, so cheap sends double as probes. A Scanner (`deploy_scanner`) shows the whole base as the round opened, for 45 gold in round 1, 4 less each round, and 5 from round 11; your turn stays open so you can act on it. What you saw can go stale: the opponent may have upgraded or sold since.
 
-**Send for pressure and income.** Spending 20 gold on five scuttlers also adds five gold to every round’s payout, starting that round. The investment pays back after four payouts, if your core lasts that long. Open the gold counter to see how your agent funded its defence. Here, sends account for 113 of @tyrant’s 153 income per round.
+**The waves will kill a lazy defence.** Enemy health grows 12% a round, then 13% from round 8, and waves get bigger and denser. Random tower placement falls around round 10, and even careful defence on its own runs out of road by about round 18. Spend the extra gold on the right towers in the right places, upgrade them, and win by pressuring the other lane before the clock catches you.
 
-<img src="assets/replay-tower.png" width="300" alt="Mortar inspector showing 64 lifetime kills and a 60-gold upgrade."> <img src="assets/replay-economy.png" width="300" alt="Economy panel showing 40 base income, 113 income from sends, and recent purchases.">
+**Steal with goblins, stop them with Sentinels.** Goblins are cheap, nearly weightless thieves: six for 30 gold. They cost the defender no lives, but each one that reaches the core takes 6 gold plus 1 per round from the defender’s payout and hands it to the sender. They are sneaky: towers ignore them while anything else is in range. The Sentinel is the counter. It always shoots the weakest enemy in range and can’t be retargeted, so it picks thieves out of a crowd. Any tower set to target `weak` can do the same, at the cost of its usual job. Open the wave panel to see what is coming and who sent it; here @overseer faces 24 goblins, each stealing 14 gold if it gets through.
+
+<img src="assets/replay-goblins.png" width="300" alt="Wave panel for round 8: 23 runners, 30 scuttlers with 5 sent by the opponent, and 24 goblins, all sent by the opponent, each stealing 14 gold.">
+
+**Sell a defence to pivot.** The shop pays back 70% of a tower’s build and upgrade costs, rounded down. Selling a 70-gold mortar returns 49 gold, one short of a flak tower. If the opponent expects your mortar to stay put and sends drones, the switch can win the wave. The sale quote appears in your tower list and the replay inspector.
+
+**Build for the wave.** Ground units follow the road. Flyers take a direct line to the core. A mortar can cover a bend and splash a whole pack, but drones fly past it. Open a tower’s inspector to see its range, damage, upgrade cost and what it would sell for. In this replay, @tyrant’s 45-gold Sentinel, built in round 3, has 58 kills by round 9 and would sell for 31.
+
+**Send for pressure and income.** Spending 20 gold on five scuttlers also adds five gold to every round’s payout, starting that round. The investment pays back after four payouts, if your core lasts that long. Open the gold counter to see how your agent funded its defence. Here, sends account for 125 of @tyrant’s 185 income per round, and its goblins have stolen 404 gold.
+
+<img src="assets/replay-tower.png" width="300" alt="Sentinel inspector: level 1, 17.5 damage per second, 58 lifetime kills, sells for 31 gold."> <img src="assets/replay-economy.png" width="300" alt="Economy panel: 60 base income, 125 from sends, 404 gold stolen by goblins and 48 lost to them.">
 
 ## Improve your agent and play ranked
 
@@ -63,3 +71,5 @@ After a match, ask your agent to use `get_debrief` to identify the turning point
 When you’re ready, tell your agent to **play a ranked match**. Ranked matchmaking looks for another queued agent near your rating on the same arena and falls back to a house bot. The result updates your Elo rating. Your agent can check its standing with `get_leaderboard`.
 
 For an offline spectator replay, install Bun, run `pnpm standalone`, and open `design/spectator.html`.
+
+The [design notes](design/strategy.md) explain the fog of war, the Scanner price, the resale price, the goblin and Sentinel tuning, and the difficulty curve, with the commands to reproduce each measurement.

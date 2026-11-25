@@ -1,7 +1,10 @@
-// What the spectator page is given about a match. Everything here is public:
-// the action log stops at the last resolved round, so a planning phase in
-// progress is never exposed.
-import type { Action } from "../engine/duel.ts";
+// What the match page is given. Three views, decided on the server:
+// - "full": a finished match. Everything is revealed, like cards at a showdown.
+// - "lane": a live match, for one of its two players. Your own lane in full; of
+//   the opponent only what fog of war lets your agent know.
+// - "summary": a live match, for anyone else. Public facts only.
+// A live match's log never includes the round being planned.
+import type { Action, SeenTower } from "../engine/duel.ts";
 
 export interface FeedPlayer {
   handle: string;
@@ -27,11 +30,13 @@ export interface FeedPlayer {
 }
 
 export interface Feed {
+  view: "full" | "lane";
   id: string;
   seed: number;
   mode: "ranked" | "practice";
   status: "active" | "finished";
   resolvedRounds: number;
+  /** In a lane view, the opponent's half of each round holds only the raiders they sent at you. */
   log: [Action[], Action[]][];
   winner: 0 | 1 | "draw" | null;
   endReason: string | null;
@@ -46,4 +51,32 @@ export interface Feed {
     lastCall: [number | null, number | null];
     now: number;
   };
+  /** Present only in a lane view. */
+  lane?: LaneInfo;
 }
+
+/** What one player is entitled to see of their live match beyond their own moves. */
+export interface LaneInfo {
+  /** Which player you are. */
+  side: 0 | 1;
+  /** Settled after each resolved round, for values your own lane cannot reproduce (stolen gold, their lives). */
+  rounds: { goldAfter: number; incomeAfter: number; livesAfter: number; opponentLivesAfter: number; goldStolen: number; livesTaken: number }[];
+  /** Opponent towers your agent has seen, as last seen. */
+  intel: SeenTower[];
+  /** Round of your agent's last Scanner, or 0. */
+  lastScanRound: number;
+}
+
+/** A live match for someone who is not playing in it. */
+export interface MatchSummary {
+  view: "summary";
+  id: string;
+  mode: "ranked" | "practice";
+  status: "active";
+  resolvedRounds: number;
+  players: [FeedPlayer, FeedPlayer];
+  /** Lives after each resolved round, per player. */
+  lives: [number, number][];
+}
+
+export type MatchView = Feed | MatchSummary;

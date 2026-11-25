@@ -29,7 +29,8 @@ export function roundReport(state: DuelState, player: 0 | 1, rec: RoundRecord) {
   if (leakedAir > 0 && !hasAntiAir) notes.push(`${plural(leakedAir, "flyer")} got through and you have no tower that can hit air.`);
   for (const u of Object.keys(me.battle.leaked) as UnitType[]) {
     const n = me.battle.leaked[u] ?? 0;
-    if (n > 0) notes.push(`${unitCount(n, u)} leaked (${plural(n * UNITS[u].lives, "life")}). Counter: ${counterHint(u)}`);
+    if (n > 0 && UNITS[u].loot) notes.push(`${unitCount(n, u)} reached your core and stole ${me.goldLost} gold from your payout. Counter: ${counterHint(u)}`);
+    else if (n > 0) notes.push(`${unitCount(n, u)} leaked (${plural(n * UNITS[u].lives, "life")}). Counter: ${counterHint(u)}`);
   }
   for (const u of Object.keys(me.battle.killDepth) as UnitType[]) {
     const depth = me.battle.killDepth[u] ?? 0;
@@ -48,6 +49,10 @@ export function roundReport(state: DuelState, player: 0 | 1, rec: RoundRecord) {
         : `None of the ${mySent} units you sent got through.`,
     );
   }
+  if (lane.intel.newlySeen.length) notes.push(`Your raiders revealed ${plural(lane.intel.newlySeen.length, "enemy tower")}. scout_opponent lists everything you know about their base.`);
+  else if (mySent === 0 && !Object.keys(lane.intel.towers).length) notes.push("You know nothing about their base yet. Raiders you send reveal the towers that shoot them; a Scanner reveals everything.");
+  if (me.goldStolen > 0) notes.push(`Your goblins stole ${me.goldStolen} gold from the opponent.`);
+  else if (me.sent.some((o) => UNITS[o.unit].loot)) notes.push("Every goblin you sent was caught before it reached the core.");
   if (me.battle.livesLost === 0 && me.goldAfter > 250 && state.status === "planning") notes.push(`You are holding ${me.goldAfter} gold. Unspent gold earns nothing.`);
 
   return {
@@ -58,12 +63,15 @@ export function roundReport(state: DuelState, player: 0 | 1, rec: RoundRecord) {
       livesLostTo: { neutralWave: me.battle.leakedLives.base, opponentSends: me.battle.leakedLives.send },
       faced: me.battle.spawned, leaked: me.battle.leaked,
       killDepth: me.battle.killDepth,
-      bountyEarned: me.battle.bounty, incomePaid: me.incomeAfter, goldNow: me.goldAfter,
+      bountyEarned: me.battle.bounty, incomePaid: me.incomeAfter, goldStolenFromYou: me.goldLost, goldYourGoblinsStole: me.goldStolen, goldNow: me.goldAfter,
       towers,
     },
     opponentSentYou: opp.sent.map((o) => ({ unit: o.unit, units: o.orders * UNITS[o.unit].send.count })),
     yourSends: { sent: me.sent.map((o) => ({ unit: o.unit, units: o.orders * UNITS[o.unit].send.count })), goldSpent: me.sendSpent, livesTaken: opp.battle.leakedLives.send },
-    opponent: { livesLost: opp.battle.livesLost, livesNow: opp.livesAfter, leaked: opp.battle.leaked, income: opp.incomeAfter },
+    // Only what is public. Their leaks, gold and income are not.
+    opponent: { livesLost: opp.battle.livesLost, livesNow: opp.livesAfter },
+    // Towers that struck your raiders this round are now on your map of their base.
+    revealedThisRound: lane.intel.newlySeen.map((id) => { const t = lane.intel.towers[id]; return { id, type: t.type, x: t.x, y: t.y, level: t.level, targeting: t.targeting }; }),
     notes,
   };
 }
@@ -72,6 +80,7 @@ function counterHint(u: UnitType): string {
   switch (u) {
     case "scuttler": return "splash (Mortar) or chaining (Arc Coil).";
     case "runner": return "more damage early on the path, or a Frost Vent to hold them in range.";
+    case "goblin": return "a Sentinel, which always shoots the weakest enemy, or any tower set to target weak. Goblins hide behind tougher raiders.";
     case "shellback": return "Arc Coil breaks shields at double damage.";
     case "drone": return "Flak on the flight line.";
     case "gunship": return "Flak (Seeker) or Harpoon; nailguns barely scratch its armour.";
@@ -96,6 +105,9 @@ export interface Debrief {
 interface SideEconomy {
   towerGold: number;
   sendGold: number;
+  scannerGold?: number;
+  goldStolen?: number; // Older persisted debriefs predate goblins.
+  goldLost?: number;
   bounty: number;
   finalIncome: number;
   livesTaken: number;
@@ -181,6 +193,8 @@ export function debrief(state: DuelState, player: 0 | 1): Debrief {
   if (firstAir && airLeak >= 4) findings.push(`Flyers took ${airLeak} lives. They first appeared in round ${firstAir.round}.`);
   if (me.totals.sendGold === 0) findings.push("You never sent anything. Sends raise your income permanently; a pure defence falls behind on gold every round.");
   else if (me.totals.livesTaken === 0) findings.push(`You spent ${me.totals.sendGold} gold on sends and took no lives. They still paid for themselves as income if bought early, but none of them tested a weakness.`);
+  if (me.totals.goldLost >= 40) findings.push(`Goblins stole ${me.totals.goldLost} gold from you over the match. Counter: ${counterHint("goblin")}`);
+  if (me.totals.goldStolen > 0) findings.push(`Your goblins stole ${me.totals.goldStolen} gold.`);
   if (opp.income > me.income * 1.5 && state.history.length >= 6) findings.push(`The opponent finished with ${opp.income} income against your ${me.income}. They out-earned you for most of the match.`);
   const weak = towers.filter((t) => t.gold >= 150 && t.type !== "relay" && t.type !== "frost").sort((a, b) => a.damagePerGold - b.damagePerGold)[0];
   const strong = towers[0];
@@ -188,7 +202,7 @@ export function debrief(state: DuelState, player: 0 | 1): Debrief {
     findings.push(`${TOWERS[weak.type].name}s returned ${weak.damagePerGold} damage per gold against ${strong.damagePerGold} for ${TOWERS[strong.type].name}s. Check their placement and whether the waves called for them.`);
   }
 
-  const econ = (l: typeof me): SideEconomy => ({ towerGold: l.totals.towerGold, sendGold: l.totals.sendGold, bounty: l.totals.bounty, finalIncome: l.income, livesTaken: l.totals.livesTaken });
+  const econ = (l: typeof me): SideEconomy => ({ towerGold: l.totals.towerGold, sendGold: l.totals.sendGold, scannerGold: l.totals.scannerGold, goldStolen: l.totals.goldStolen, goldLost: l.totals.goldLost, bounty: l.totals.bounty, finalIncome: l.income, livesTaken: l.totals.livesTaken });
   return {
     result, endReason: state.endReason ?? "", rounds: state.history.length, turningPoint, timeline,
     economy: { you: econ(me), opponent: econ(opp) },

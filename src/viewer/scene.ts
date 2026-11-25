@@ -171,6 +171,10 @@ export class Scene {
       // The bounty, as a coin.
       this.bits.push({ x, y, z: z + 2, vx: 0, vy: 0, vz: 30, c: C.honey, life: 0.8, size: 1.2, glow: true });
       this.rings.push({ x, y, z: air ? ALT : 0, r: big ? 7 : 3.5, c: C.white, life: 0.3, max: 0.3 });
+    } else if (fx.kind === "leak" && fx.loot > 0) {
+      // A goblin made it: no damage to the core, but a spray of coins carried off over the edge.
+      const [cx, cy] = this.mid(...this.coreCell());
+      for (let i = 0; i < (this.reduced ? 2 : 7); i++) this.bits.push({ x: cx, y: cy, z: 6, vx: 14 + Math.random() * 10, vy: (Math.random() - 0.5) * 14, vz: 24 + Math.random() * 16, c: C.honey, life: 0.9, size: 1, glow: true });
     } else if (fx.kind === "leak") {
       this.coreFlash = 1;
       const [cx, cy] = this.mid(...this.coreCell());

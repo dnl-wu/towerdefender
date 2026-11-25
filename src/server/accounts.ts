@@ -45,6 +45,11 @@ export function createUser(handle: string, password: string): User {
   return userById(Number(res.lastInsertRowid))!;
 }
 
+export function setPassword(userId: number, password: string): void {
+  if (password.length < 8) throw new Error("Passwords need at least 8 characters.");
+  run("UPDATE users SET pass_hash = ? WHERE id = ?", hashPassword(password), userId);
+}
+
 export function login(handle: string, password: string): User | null {
   const row = get<{ id: number; pass_hash: string | null }>("SELECT id, pass_hash FROM users WHERE handle = ?", handle);
   if (!row?.pass_hash || !checkPassword(password, row.pass_hash)) return null;

@@ -13,7 +13,9 @@
     "seed": "node --experimental-strip-types scripts/seed.ts",
     "demo": "node --experimental-strip-types scripts/demo.ts",
     "standalone": "node --experimental-strip-types scripts/standalone.ts",
-    "account": "node --experimental-strip-types scripts/account.ts"
+    "account": "node --experimental-strip-types scripts/account.ts",
+    "solo": "node --experimental-strip-types scripts/solo.ts",
+    "goblins": "node --experimental-strip-types scripts/goblins.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",

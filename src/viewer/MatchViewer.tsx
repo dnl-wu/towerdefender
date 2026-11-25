@@ -3,9 +3,9 @@
 // around it, and one popover at a time for anyone curious about the machinery.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { effectiveStats, type Tower } from "../engine/battle.ts";
-import { RULES, TOWERS, UNITS, hpScale, type TowerType, type UnitType } from "../engine/data.ts";
+import { RULES, TOWERS, UNITS, defenceResale, hpScale, lootFor, type TowerType, type UnitType } from "../engine/data.ts";
 import { baseWave, summarizeWave, waveArchetype } from "../engine/waves.ts";
-import type { Feed, FeedPlayer } from "./feed.ts";
+import type { Feed, FeedPlayer, LaneInfo, MatchView } from "./feed.ts";
 import { UNIT_ART, towerModel, warden, type Mood } from "./models.ts";
 import { C } from "./palette.ts";
 import { Playback, towerLabel, type Hud } from "./playback.ts";
@@ -86,7 +86,8 @@ export function MatchViewer({ initial, pollUrl, side: startSide = 0, onReady }: 
   const pbRef = useRef<Playback | null>(null);
   const sceneRef = useRef<Scene | null>(null);
   const [feed, setFeed] = useState(initial);
-  const [side, setSide] = useState<0 | 1>(startSide);
+  // In a lane view you watch your own lane; the other is hidden until the match ends.
+  const [side, setSide] = useState<0 | 1>(initial.lane?.side ?? startSide);
   const [hud, setHud] = useState<Hud | null>(null);
   const [open, setOpen] = useState<Open>(null);
   const [tip, setTip] = useState<{ id: number; x: number; y: number } | null>(null);
@@ -102,7 +103,7 @@ export function MatchViewer({ initial, pollUrl, side: startSide = 0, onReady }: 
     let saved: Lighting["key"] = "golden";
     try { const v = localStorage.getItem("td-light"); if (v === "morning" || v === "golden" || v === "night") saved = v; } catch { /* storage unavailable: keep the default */ }
     setLight(saved);
-    const pb = new Playback(initial, startSide), scene = new Scene(canvas, pb, saved);
+    const pb = new Playback(initial, initial.lane?.side ?? startSide), scene = new Scene(canvas, pb, saved);
     pbRef.current = pb; sceneRef.current = scene;
     onReady?.(pb, scene);
     const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -136,7 +137,12 @@ export function MatchViewer({ initial, pollUrl, side: startSide = 0, onReady }: 
     if (!pollUrl || feed.status !== "active") return;
     const id = setInterval(async () => {
       if (document.hidden) return;
-      try { const res = await fetch(pollUrl, { cache: "no-store" }); if (res.ok) { const next = (await res.json()) as Feed; pbRef.current?.setFeed(next); setFeed(next); } } catch { /* offline: try again on the next tick */ }
+      try { const res = await fetch(pollUrl, { cache: "no-store" }); if (res.ok) {
+        const next = (await res.json()) as MatchView;
+        // The match ended (lane to full replay) or the viewer's access changed: start again with the new view.
+        if (next.view !== feed.view) { location.reload(); return; }
+        pbRef.current?.setFeed(next); setFeed(next);
+      } } catch { /* offline: try again on the next tick */ }
     }, 2000);
     return () => clearInterval(id);
   }, [pollUrl, feed.status]);
@@ -229,7 +235,7 @@ export function MatchViewer({ initial, pollUrl, side: startSide = 0, onReady }: 
 
             <div className="hud-slot top-2 left-1/2 -translate-x-1/2 items-center sm:top-4">
               <button className="instrument flex flex-col items-center gap-0.5 px-2 pt-1.5 pb-2 sm:px-3" {...trigger("round", `Round ${hud.round} of ${hud.maxRounds}. Open round timeline.`)}>
-                <span className="caption">{hud.replay ? "Replay · round" : "Round"}</span>
+                <span className="caption">{hud.replay ? "Replay · round" : feed.view === "lane" ? "Live · round" : "Round"}</span>
                 <span className="flex items-baseline gap-0.5 [&>b]:text-[28px]/7 [&>b]:tabular-nums motion-safe:[&>b]:animate-tick [&>i]:text-[11px] [&>i]:text-sand"><b key={hud.round}>{hud.round}</b><i>/{hud.maxRounds}</i></span>
                 <span className="mt-0.5 flex gap-px [&>i]:size-[2px] sm:[&>i]:size-[3px] [&>i]:rounded-[1px]" aria-hidden>{Array.from({ length: hud.maxRounds }, (_, i) => <i key={i} className={i < hud.round - 1 ? "bg-honey" : i === hud.round - 1 ? "bg-parchment" : "bg-bronze"} />)}</span>
               </button>
@@ -244,7 +250,7 @@ export function MatchViewer({ initial, pollUrl, side: startSide = 0, onReady }: 
                 <Portrait seed={foe.avatarSeed} mood={hud.mood[other]} />
                 <Pips n={hud.lives[other]} />
               </button>
-              {open === "foe" && <AgentPop p={foe} idx={other} hud={hud} pb={pb} feed={feed} now={now} friend={false} onWatch={() => watch(other)} />}
+              {open === "foe" && <AgentPop p={foe} idx={other} hud={hud} pb={pb} feed={feed} now={now} friend={false} onWatch={feed.view === "lane" ? null : () => watch(other)} />}
             </div>
 
             <div className="hud-slot bottom-2 left-2 items-start sm:bottom-4 sm:left-4">
@@ -321,7 +327,15 @@ function AgentPop({ p, idx, hud, pb, feed, now, friend, onWatch }: { p: FeedPlay
   const perfect = history.filter((r) => r.sides[idx].battle.livesLost === 0).length;
   const kills = lane.towers.reduce((s, t) => s + t.kills, 0);
   const lastRound = txns.length ? txns[txns.length - 1].round : 0;
-  const payload = lastRound ? JSON.stringify({ actions: txns.filter((t) => t.round === lastRound).map((t) => t.payload) }, null, 1).replace(/\n\s*/g, " ") : "";
+  const lastActions = txns.filter((t) => t.round === lastRound).map((t) => t.payload);
+  // Show what the agent sent: a Scanner is its own tool, and sales drop the replay-only pricing marker.
+  const combat = lastActions.filter((a) => a.type !== "scan").map((a) => a.type === "sell" ? { type: a.type, id: a.id } : a);
+  const payload = [
+    ...(lastActions.some((a) => a.type === "scan") ? [`deploy_scanner {"round":${lastRound}}`] : []),
+    ...(combat.length ? [`take_turn ${JSON.stringify({ actions: combat })}`] : []),
+  ].join("\n");
+  // A live match seen by its player: the opponent's board, purse and moves are hidden, as they are from your agent.
+  const hidden = feed.view === "lane" && feed.lane !== undefined && idx !== feed.lane.side;
   const live = feed.live;
   let link: ReactNode;
   if (p.houseBot) link = "House bot: plays on the server, not over MCP";
@@ -340,6 +354,7 @@ function AgentPop({ p, idx, hud, pb, feed, now, friend, onWatch }: { p: FeedPlay
         {p.agentModel && <Row k="Runs on" v={p.agentModel} />}
         <Row k="Link" v={link} />
       </Section>
+      {hidden && feed.lane ? <IntelSection lane={feed.lane} round={pb.duel.round} /> : <>
       <Section title="This match">
         <Row k="Rounds held without a leak" v={`${perfect} of ${history.length}`} tone={perfect > 0 ? "gold" : undefined} />
         <Row k="Lives taken by sends" v={lane.totals.livesTaken} />
@@ -349,10 +364,24 @@ function AgentPop({ p, idx, hud, pb, feed, now, friend, onWatch }: { p: FeedPlay
       <Section title={`Recent actions${lastRound ? ` · round ${lastRound}` : ""}`}>
         {txns.length === 0 && <p className="empty">No actions yet.</p>}
         <ul className="action-log">{txns.slice(-5).map((t, i) => <li key={i}><i>R{t.round}</i>{t.text}</li>)}</ul>
-        {payload && !p.houseBot && <details><summary>MCP payload</summary><code>take_turn {payload}</code><p className="empty">Accepted actions only; rejected ones are not recorded.</p></details>}
+        {payload && !p.houseBot && <details><summary>MCP payload</summary><code>{payload}</code><p className="empty">Accepted actions only; rejected ones are not recorded.</p></details>}
       </Section>
+      </>}
       {onWatch && <button className="mt-3 w-full cursor-pointer rounded-md border border-bronze bg-elevated py-1.5 font-medium hover:border-brass" onClick={onWatch}>Watch this lane</button>}
     </div>
+  );
+}
+
+/** What your agent knows about a live opponent: only what its raiders and Scanners have revealed. */
+function IntelSection({ lane, round }: { lane: LaneInfo; round: number }) {
+  const known = lane.intel;
+  return (
+    <Section title="What your agent knows">
+      <p className="empty">Their board, gold and income stay hidden until the match ends. Towers appear here when they strike your raiders, or when a Scanner sees them.</p>
+      <Row k="Known towers" v={known.length} />
+      <Row k="Last Scanner" v={lane.lastScanRound ? (lane.lastScanRound === round ? "this round" : `round ${lane.lastScanRound}`) : "none"} />
+      {known.length > 0 && <ul className="action-log mt-1">{known.map((t) => <li key={t.id}><i>R{t.seenRound}</i>{TOWERS[t.type].name}{t.spec ? ` · ${TOWERS[t.type].specs[t.spec].name}` : ` · level ${t.level}`} at {t.x},{t.y}<b className="text-sand">{t.via === "scan" ? "scanned" : "hit you"}</b></li>)}</ul>}
+    </Section>
   );
 }
 
@@ -403,6 +432,8 @@ function EconPop({ pb, idx, hud }: { pb: Playback; idx: 0 | 1; hud: Hud }) {
       <Section title="So far">
         <Row k="Spent on towers" v={lane.totals.towerGold} />
         <Row k="Spent on sends" v={lane.totals.sendGold} />
+        {lane.totals.goldStolen > 0 && <Row k="Stolen by your goblins" v={`+${lane.totals.goldStolen}`} tone="good" />}
+        {lane.totals.goldLost > 0 && <Row k="Stolen from you by goblins" v={`−${lane.totals.goldLost}`} tone="bad" />}
         <Row k="Bounties earned" v={`+${lane.totals.bounty}`} tone="gold" />
         {lane.totals.refunds > 0 && <Row k="Refunds from selling" v={`+${lane.totals.refunds}`} />}
       </Section>
@@ -428,7 +459,7 @@ function WavePop({ hud }: { hud: Hud }) {
             <div>
               <h4>{e.count} × {u.name}{e.sent > 0 && <em> · {e.sent} sent by the opponent</em>}</h4>
               <p>{u.desc}</p>
-              <code>{Math.round(u.hp * scale)} hp{u.shield ? ` · ${Math.round(u.shield * scale)} shield` : ""}{u.armor ? ` · ${u.armor} armour` : ""} · speed {u.speed}{u.flying ? " · flying" : ""} · costs {u.lives} {u.lives === 1 ? "life" : "lives"} · {u.bounty}g bounty</code>
+              <code>{Math.round(u.hp * scale)} hp{u.shield ? ` · ${Math.round(u.shield * scale)} shield` : ""}{u.armor ? ` · ${u.armor} armour` : ""} · speed {u.speed}{u.flying ? " · flying" : ""} · {u.loot ? `steals ${lootFor(e.unit, hud.wave.round)} gold, no lives` : `costs ${u.lives} ${u.lives === 1 ? "life" : "lives"}`} · {u.bounty}g bounty</code>
             </div>
           </section>
         );
@@ -459,6 +490,7 @@ function TowerPop({ t, pb, idx }: { t: Tower; pb: Playback; idx: 0 | 1 }) {
         <Row k="Lifetime damage" v={t.dmg + (nowStats?.dmg ?? 0)} />
         <Row k="Lifetime kills" v={t.kills + (nowStats?.kills ?? 0)} />
         <Row k="Gold invested" v={t.invested} tone="gold" />
+        <Row k="Sell value" v={`${defenceResale(t.invested)} gold`} />
       </Section>
       <Section title="History">
         <ul className="action-log">{notes.map((n, i) => <li key={i}><i>R{n.round}</i>{n.text}</li>)}</ul>

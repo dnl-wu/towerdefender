@@ -1,5 +1,5 @@
 import {
-  RULES, TOWERS, UNITS, armorAgainst, hpScale, shieldMultiplier,
+  RULES, lootFor, TOWERS, UNITS, armorAgainst, hpScale, shieldMultiplier,
   type DamageType, type Spec, type Targeting, type TowerStats, type TowerType, type UnitType,
 } from "./data.ts";
 import { flightLength, type GameMap } from "./map.ts";
@@ -81,7 +81,7 @@ export type BattleEvent =
   | { e: "shot"; tower: number; x: number; y: number; hits: number[]; splash?: number }
   | { e: "pulse"; tower: number }
   | { e: "die"; id: number; x: number; y: number }
-  | { e: "leak"; id: number; lives: number };
+  | { e: "leak"; id: number; lives: number; loot: number };
 
 interface TowerRuntime {
   tower: Tower;
@@ -105,6 +105,8 @@ export interface Battle {
   nextId: number;
   done: boolean;
   livesLost: number;
+  /** Gold carried off by thieves that reached the core. */
+  stolen: number;
   bounty: number;
   routeLen: { ground: number; air: number };
   spawned: Partial<Record<UnitType, number>>;
@@ -113,6 +115,8 @@ export interface Battle {
   leakedLives: { base: number; send: number };
   /** Sum of progress (0..1) at death, per unit, to report how deep kills happened. */
   deathProgress: Partial<Record<UnitType, number>>;
+  /** Towers that struck a unit the opponent sent. The sender's raiders report them back. */
+  contacts: Set<number>;
 }
 
 export function createBattle(map: GameMap, towers: Tower[], groups: SpawnGroup[], round: number): Battle {
@@ -124,9 +128,9 @@ export function createBattle(map: GameMap, towers: Tower[], groups: SpawnGroup[]
   return {
     map, round, t: 0, tick: 0, enemies: [],
     towers: towers.map((tower) => ({ tower, stats: effectiveStats(tower, map, towers), cooldown: 0, dmg: 0, kills: 0, shots: 0, overkill: 0 })),
-    queue: indexed.map((x) => x.q), queueIdx: 0, nextId: 1, done: false, livesLost: 0, bounty: 0,
+    queue: indexed.map((x) => x.q), queueIdx: 0, nextId: 1, done: false, livesLost: 0, stolen: 0, bounty: 0,
     routeLen: { ground: map.path.length - 1, air: flightLength(map) },
-    spawned: {}, killed: {}, leaked: {}, leakedLives: { base: 0, send: 0 }, deathProgress: {},
+    spawned: {}, killed: {}, leaked: {}, leakedLives: { base: 0, send: 0 }, deathProgress: {}, contacts: new Set(),
   };
 }
 
@@ -152,6 +156,7 @@ function progress(b: Battle, en: Enemy): number {
 
 function damage(b: Battle, tr: TowerRuntime, en: Enemy, amount: number, type: DamageType, events: BattleEvent[]) {
   if (!en.alive || amount <= 0) return;
+  if (en.source === "send") b.contacts.add(tr.tower.id);
   const s = tr.stats;
   let dmg = amount;
   if (en.brittle > 0 && en.slowUntil > b.t) dmg *= 1 + en.brittle;
@@ -187,8 +192,9 @@ function pickTarget(b: Battle, tr: TowerRuntime): Enemy | null {
   const { tower, stats } = tr;
   const r2 = stats.range * stats.range;
   const min2 = (stats.minRange ?? 0) * (stats.minRange ?? 0);
-  let best: Enemy | null = null;
-  let bestScore = 0;
+  // Sneaky units are passed over while anything else is in range, unless the tower hunts the weakest.
+  const seesSneaky = tower.targeting === "weak";
+  let best: Enemy | null = null, bestScore = 0, sneaky: Enemy | null = null, sneakyScore = 0;
   for (const en of b.enemies) {
     if (!en.alive) continue;
     const flying = UNITS[en.unit].flying;
@@ -206,12 +212,14 @@ function pickTarget(b: Battle, tr: TowerRuntime): Enemy | null {
       case "weak": score = -(en.hp + en.shield); break;
       default: score = -d2;
     }
-    if (best === null || score > bestScore) {
+    if (UNITS[en.unit].sneaky && !seesSneaky) {
+      if (sneaky === null || score > sneakyScore) { sneaky = en; sneakyScore = score; }
+    } else if (best === null || score > bestScore) {
       best = en;
       bestScore = score;
     }
   }
-  return best;
+  return best ?? sneaky;
 }
 
 /** Advance one tick. Returns what happened, for the replay renderer. */
@@ -250,10 +258,12 @@ export function stepBattle(b: Battle): BattleEvent[] {
     const len = def.flying ? b.routeLen.air : b.routeLen.ground;
     if (en.dist >= len) {
       en.alive = false;
+      const loot = lootFor(en.unit, b.round);
       b.livesLost += def.lives;
+      b.stolen += loot;
       b.leaked[en.unit] = (b.leaked[en.unit] ?? 0) + 1;
       b.leakedLives[en.source] += def.lives;
-      events.push({ e: "leak", id: en.id, lives: def.lives });
+      events.push({ e: "leak", id: en.id, lives: def.lives, loot });
       continue;
     }
     place(b, en);
@@ -275,6 +285,7 @@ export function stepBattle(b: Battle): BattleEvent[] {
         const dy = en.y - tr.tower.y;
         if (dx * dx + dy * dy > r2) continue;
         any = true;
+        if (en.source === "send") b.contacts.add(tr.tower.id);
         if ((s.slow ?? 0) >= en.slow || en.slowUntil <= b.t) en.slow = s.slow ?? 0;
         en.slowUntil = b.t + (s.slowDur ?? 1);
         en.brittle = Math.max(en.brittle, s.brittle ?? 0);
@@ -355,6 +366,7 @@ export function stepBattle(b: Battle): BattleEvent[] {
       if (!en.alive) continue;
       en.alive = false;
       b.livesLost += UNITS[en.unit].lives;
+      b.stolen += lootFor(en.unit, b.round);
       b.leaked[en.unit] = (b.leaked[en.unit] ?? 0) + 1;
       b.leakedLives[en.source] += UNITS[en.unit].lives;
     }
@@ -366,6 +378,8 @@ export function stepBattle(b: Battle): BattleEvent[] {
 export interface BattleResult {
   duration: number;
   livesLost: number;
+  /** Gold carried off by thieves. What the defender actually loses is capped by what it has; see resolveRound. */
+  stolen: number;
   leakedLives: { base: number; send: number };
   bounty: number;
   spawned: Partial<Record<UnitType, number>>;
@@ -374,6 +388,8 @@ export interface BattleResult {
   /** Average share of the route covered before dying, per unit type. */
   killDepth: Partial<Record<UnitType, number>>;
   towers: { id: number; dmg: number; kills: number; shots: number; overkill: number }[];
+  /** Ids of towers that struck a sent unit, in id order. */
+  contacts: number[];
 }
 
 export function battleResult(b: Battle): BattleResult {
@@ -384,9 +400,11 @@ export function battleResult(b: Battle): BattleResult {
   return {
     duration: Math.round(b.t * 10) / 10,
     livesLost: b.livesLost,
+    stolen: b.stolen,
     leakedLives: b.leakedLives,
     bounty: b.bounty,
     spawned: b.spawned, killed: b.killed, leaked: b.leaked, killDepth,
+    contacts: [...b.contacts].sort((x, y) => x - y),
     towers: b.towers.map((tr) => ({
       id: tr.tower.id, dmg: Math.round(tr.dmg), kills: tr.kills, shots: tr.shots, overkill: Math.round(tr.overkill),
     })),

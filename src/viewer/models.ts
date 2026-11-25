@@ -67,6 +67,11 @@ export const TOWER_ART: Record<TowerType, TowerArtDef> = {
     base: (l) => pad(C.frost, l).box(2, 2, 2, 4, 4, 5, C.ice).box(2, 2, 3, 4, 4, 1, C.iron).box(2, 2, 6, 4, 4, 1, C.iron).box(3, 3, 7, 2, 2, 1, C.ceramic).box(3, 3, 8, 2, 2, 2, "#e4f4f4", true).set(3, 3, 10, C.white, true)
       .box(1, 3, 2, 1, 2, 1, C.gun).box(6, 3, 2, 1, 2, 1, C.gun).box(3, 6, 2, 2, 1, 1, C.gun),
   },
+  sentinel: {
+    accent: C.sentry, headZ: 9, muzzle: [7, 1.5],
+    base: (l) => pad(C.sentry, l).box(3, 3, 2, 2, 2, 7, C.ceramic).box(2, 2, 2, 4, 4, 1, C.ceramic2).box(3, 3, 5, 2, 2, 1, C.sentry).box(2, 3, 8, 4, 2, 1, C.brass).box(3, 2, 8, 2, 4, 1, C.brass),
+    head: () => new Model().box(2, 3, 0, 4, 2, 2, C.ceramic).box(3, 3, 2, 2, 2, 1, C.sentry).box(6, 4, 1, 4, 1, 1, C.gun).set(10, 4, 1, C.brass).set(4, 3, 2, C.honey, true).box(1, 3, 0, 1, 2, 1, C.gun),
+  },
   relay: {
     accent: C.jade, headZ: 8, pivot: 4.5, spin: 0.7,
     base: (l) => pad(C.jade, l).box(3, 3, 2, 2, 2, 2, C.ceramic).box(4, 4, 4, 1, 1, 7, C.iron).set(4, 4, 11, C.jade, true),
@@ -104,6 +109,7 @@ export interface UnitArtDef {
 export const UNIT_ART: Record<UnitType, UnitArtDef> = {
   scuttler: { pivot: [1.5, 1.5], half: 1.5, tall: 3, kind: "Swarm", model: () => new Model().box(0, 0, 1, 3, 3, 2, C.umber).box(0, 0, 0, 1, 1, 1, C.umber2).box(2, 2, 0, 1, 1, 1, C.umber2).box(0, 2, 0, 1, 1, 1, C.umber2).box(2, 0, 0, 1, 1, 1, C.umber2).set(2, 0, 2, C.ember, true).set(2, 2, 2, C.ember, true) },
   runner: { pivot: [2.5, 2], half: 2.5, tall: 5, kind: "Fast", model: () => new Model().box(0, 1, 2, 5, 2, 2, C.clay).box(4, 1, 3, 2, 2, 2, C.clay).set(5, 1, 4, C.ember, true).set(5, 2, 4, C.ember, true).box(0, 1, 0, 1, 1, 2, C.umber2).box(0, 2, 0, 1, 1, 2, C.umber2).box(4, 1, 0, 1, 1, 2, C.umber2).box(4, 2, 0, 1, 1, 2, C.umber2).set(-1, 1, 3, C.umber2) },
+  goblin: { pivot: [1.5, 1.5], half: 1.5, tall: 4, kind: "Thief", model: () => new Model().box(0, 1, 0, 1, 1, 1, C.umber2).box(2, 1, 0, 1, 1, 1, C.umber2).box(0, 0, 1, 3, 3, 2, C.goblin).box(1, 0, 3, 2, 3, 1, C.goblin).set(2, 0, 3, C.honey, true).set(2, 2, 3, C.honey, true).set(1, -1, 3, C.goblin).set(1, 3, 3, C.goblin).box(-1, 0, 2, 1, 3, 2, C.brass).set(-1, 1, 4, C.honey, true) },
   shellback: { pivot: [2.5, 2.5], half: 2.5, tall: 5, kind: "Shielded", model: () => new Model().box(0, 0, 1, 5, 5, 2, C.iron).box(1, 1, 3, 3, 3, 2, C.glass, true).box(5, 1, 1, 2, 3, 2, C.umber).set(6, 1, 2, C.ember, true).set(6, 3, 2, C.ember, true).box(0, 0, 0, 1, 1, 1, C.umber2).box(4, 0, 0, 1, 1, 1, C.umber2).box(0, 4, 0, 1, 1, 1, C.umber2).box(4, 4, 0, 1, 1, 1, C.umber2) },
   drone: {
     pivot: [2.5, 2.5], half: 2.5, tall: 4, kind: "Flying", frames: 2,

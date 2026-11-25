@@ -13,8 +13,9 @@ export interface SpawnGroup {
 
 export type Archetype = "swarm" | "rush" | "shield" | "air" | "armor" | "mixed" | "boss";
 
+// Seconds between spawns within a group. Tight enough that a round plays out in well under half a minute.
 const SPAWN_GAP: Record<UnitType, number> = {
-  scuttler: 0.35, runner: 0.6, shellback: 1.1, drone: 0.7, hulk: 1.8, gunship: 2.2, colossus: 4,
+  scuttler: 0.26, runner: 0.45, goblin: 0.4, shellback: 0.8, drone: 0.5, hulk: 1.3, gunship: 1.6, colossus: 3,
 };
 
 interface Recipe {
