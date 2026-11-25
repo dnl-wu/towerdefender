@@ -4,7 +4,7 @@
 import { RULES, TOWERS, UNITS, UNIT_TYPES, defenceResale, hpScale, lootFor, scannerPrice, sendCap, type TowerType, type UnitType } from "./data.ts";
 import { effectiveStats, type Tower } from "./battle.ts";
 import type { DuelState, SeenTower } from "./duel.ts";
-import { pathCoverage, renderAscii, type GameMap } from "./map.ts";
+import { TOWER_GLYPHS, pathCoverage, renderAscii, type GameMap } from "./map.ts";
 import { baseWave, summarizeWave, waveArchetype } from "./waves.ts";
 
 function towerView(t: Tower, map: GameMap, all: Tower[]) {
@@ -34,13 +34,13 @@ export function mapView(map: GameMap) {
     for (let y = 0; y < map.h; y++) for (let x = 0; x < map.w; x++) if (map.tiles[y][x] === tile) cells.push([x, y]);
     return cells;
   };
-  // One digit per buildable cell: path cells within nailgun range. A quick read on where the road bunches up.
+  // One digit per buildable cell: path cells within 2.6 cells. A quick read on where the road bunches up.
   const cover = map.tiles.map((row, y) =>
     row.map((t, x) => (t === "." || t === "^" || t === "*" ? Math.min(9, pathCoverage(map, x, y, 2.6)).toString() : "-")).join(" "),
   );
   return {
     size: { width: map.w, height: map.h },
-    legend: ". open  # path  S spawn  C core  x rubble (unbuildable)  ^ high ground (+0.75 range)  * power tile (+25% damage)",
+    legend: ". open  # path  S spawn  C core  x rubble (unbuildable)  ^ high ground (+0.75 range)  * power tile (+25% damage). Towers: " + Object.entries(TOWER_GLYPHS).map(([t, g]) => `${g} ${t}`).join("  "),
     grid: renderAscii(map),
     path: map.path,
     flightLine: { from: map.path[0], to: map.path[map.path.length - 1], note: "Flying units travel this straight line, ignoring the path." },
@@ -105,7 +105,7 @@ export function scoutView(state: DuelState, player: 0 | 1) {
   for (const t of known) byType[t.type] = (byType[t.type] ?? 0) + 1;
   const canHit = (kind: "air" | "ground") =>
     known
-      .filter((t) => t.type !== "relay" && t.type !== "frost" && (TOWERS[t.type].targets === "both" || TOWERS[t.type].targets === kind))
+      .filter((t) => t.type !== "beacon" && t.type !== "frost" && (TOWERS[t.type].targets === "both" || TOWERS[t.type].targets === kind))
       .reduce((sum, t) => {
         const s = effectiveStats(t, state.map, known);
         return sum + s.dmg * s.rate;

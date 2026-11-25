@@ -1,14 +1,14 @@
 // All tunable game numbers live here. The rules handbook served to agents is
 // generated from this file, so the docs can never drift from the simulation.
 
-export type TowerType = "nailgun" | "mortar" | "harpoon" | "coil" | "flak" | "frost" | "relay" | "sentinel";
-export type UnitType = "scuttler" | "runner" | "goblin" | "shellback" | "drone" | "hulk" | "gunship" | "colossus";
+export type TowerType = "gatling" | "cannon" | "ballista" | "tesla" | "flak" | "frost" | "beacon" | "laser";
+export type UnitType = "kobold" | "hellhound" | "goblin" | "orc" | "imp" | "ogre" | "wyvern" | "minotaur";
 export type Targeting = "first" | "last" | "strong" | "weak" | "close";
 export type DamageType = "kinetic" | "explosive" | "energy" | "pierce" | "none";
 export type Spec = "a" | "b";
 
-export const TOWER_TYPES: TowerType[] = ["nailgun", "mortar", "harpoon", "coil", "flak", "frost", "relay", "sentinel"];
-export const UNIT_TYPES: UnitType[] = ["scuttler", "runner", "goblin", "shellback", "drone", "hulk", "gunship", "colossus"];
+export const TOWER_TYPES: TowerType[] = ["gatling", "cannon", "ballista", "tesla", "flak", "frost", "beacon", "laser"];
+export const UNIT_TYPES: UnitType[] = ["kobold", "hellhound", "goblin", "orc", "imp", "ogre", "wyvern", "minotaur"];
 export const TARGETINGS: Targeting[] = ["first", "last", "strong", "weak", "close"];
 
 export interface TowerStats {
@@ -26,9 +26,9 @@ export interface TowerStats {
   /** Fraction of speed removed, 0..1. */
   slow?: number;
   slowDur?: number;
-  /** Relay: damage bonus given to the 8 neighbouring towers. */
+  /** Beacon: damage bonus given to the 8 neighbouring towers. */
   buffDmg?: number;
-  /** Relay: range bonus given to the 8 neighbouring towers. */
+  /** Beacon: range bonus given to the 8 neighbouring towers. */
   buffRange?: number;
   /** Damage per second applied for 3s after a hit. */
   burn?: number;
@@ -42,6 +42,8 @@ export interface TowerStats {
 
 export interface TowerDef {
   name: string;
+  /** How it attacks, at a glance: what it fires, what it hits, how far. Shown to agents and spectators. */
+  tags: string[];
   role: string;
   targets: "ground" | "air" | "both";
   dmgType: DamageType;
@@ -52,54 +54,58 @@ export interface TowerDef {
 }
 
 export const TOWERS: Record<TowerType, TowerDef> = {
-  nailgun: {
-    name: "Nailgun",
-    role: "Cheap rapid fire. Strong against unarmoured targets, poor against armour because armour is subtracted from every hit.",
+  gatling: {
+    name: "Gatling",
+    tags: ["Bullets", "Single target", "Short range", "Rapid fire"],
+    role: "Spins up a stream of bullets. Cheap and fast-firing at short range; armour blunts every round.",
     targets: "both",
     dmgType: "kinetic",
     levels: [
-      { cost: 40, dmg: 6, rate: 3, range: 2.6 },
-      { cost: 35, dmg: 10, rate: 3, range: 2.6 },
-      { cost: 60, dmg: 15, rate: 3.2, range: 2.9 },
+      { cost: 40, dmg: 6, rate: 3, range: 2.4 },
+      { cost: 35, dmg: 10, rate: 3, range: 2.4 },
+      { cost: 60, dmg: 15, rate: 3.2, range: 2.7 },
     ],
     specs: {
-      a: { name: "Shredder", desc: "Doubles fire rate.", cost: 110, dmg: 15, rate: 6.4, range: 2.9 },
+      a: { name: "Shredder", desc: "Doubles fire rate.", cost: 110, dmg: 15, rate: 6.4, range: 2.7 },
       b: { name: "Marksman", desc: "Long range heavy shots that cope with armour.", cost: 110, dmg: 75, rate: 1.1, range: 4.6 },
     },
   },
-  mortar: {
-    name: "Mortar",
-    role: "Splash damage for packs. Ground only, and cannot fire at anything closer than its minimum range.",
+  cannon: {
+    name: "Cannon",
+    tags: ["Cannonballs", "Splash", "Medium range", "Ground only"],
+    role: "Lobs cannonballs that burst on the road and hit a whole pack. Ground only, slow to reload, and it can't hit anything right beside it.",
     targets: "ground",
     dmgType: "explosive",
     levels: [
-      { cost: 70, dmg: 26, rate: 0.5, range: 4.2, minRange: 1.5, splash: 1.2 },
-      { cost: 60, dmg: 45, rate: 0.5, range: 4.2, minRange: 1.5, splash: 1.2 },
-      { cost: 100, dmg: 70, rate: 0.55, range: 4.5, minRange: 1.5, splash: 1.4 },
+      { cost: 70, dmg: 26, rate: 0.5, range: 3.8, minRange: 1.5, splash: 1.2 },
+      { cost: 60, dmg: 45, rate: 0.5, range: 3.8, minRange: 1.5, splash: 1.2 },
+      { cost: 100, dmg: 70, rate: 0.55, range: 4.1, minRange: 1.5, splash: 1.4 },
     ],
     specs: {
-      a: { name: "Cluster", desc: "Much wider blast.", cost: 170, dmg: 80, rate: 0.55, range: 4.5, minRange: 1.5, splash: 2.1 },
-      b: { name: "Napalm", desc: "Hits leave targets burning for 3 seconds.", cost: 170, dmg: 70, rate: 0.55, range: 4.5, minRange: 1.5, splash: 1.4, burn: 28 },
+      a: { name: "Cluster", desc: "Much wider blast.", cost: 170, dmg: 80, rate: 0.55, range: 4.1, minRange: 1.5, splash: 2.1 },
+      b: { name: "Napalm", desc: "Hits leave targets burning for 3 seconds.", cost: 170, dmg: 70, rate: 0.55, range: 4.1, minRange: 1.5, splash: 1.4, burn: 28 },
     },
   },
-  harpoon: {
-    name: "Harpoon",
-    role: "Slow, heavy single shots that ignore armour entirely. The answer to hulks and bosses; wasted on swarms.",
+  ballista: {
+    name: "Ballista",
+    tags: ["Heavy bolts", "Single target", "Long range", "Pierces armour"],
+    role: "Fires heavy bolts that pierce armour completely, from very long range. Slow to reload: the answer to ogres and bosses, wasted on swarms.",
     targets: "both",
     dmgType: "pierce",
     levels: [
-      { cost: 80, dmg: 70, rate: 0.45, range: 3.6 },
-      { cost: 70, dmg: 125, rate: 0.45, range: 3.6 },
-      { cost: 120, dmg: 200, rate: 0.5, range: 4 },
+      { cost: 80, dmg: 70, rate: 0.45, range: 5 },
+      { cost: 70, dmg: 125, rate: 0.45, range: 5 },
+      { cost: 120, dmg: 200, rate: 0.5, range: 5.4 },
     ],
     specs: {
-      a: { name: "Railspike", desc: "Enormous single hits.", cost: 200, dmg: 560, rate: 0.4, range: 4.4 },
-      b: { name: "Executioner", desc: "Faster, and deals double damage to targets under half health.", cost: 200, dmg: 210, rate: 0.8, range: 4, execute: 2 },
+      a: { name: "Railspike", desc: "Enormous single hits.", cost: 200, dmg: 560, rate: 0.4, range: 5.8 },
+      b: { name: "Executioner", desc: "Faster, and deals double damage to targets under half health.", cost: 200, dmg: 210, rate: 0.8, range: 5.4, execute: 2 },
     },
   },
-  coil: {
-    name: "Arc Coil",
-    role: "Energy shots that jump between nearby targets and deal double damage to shields. Short range.",
+  tesla: {
+    name: "Tesla Coil",
+    tags: ["Lightning", "Chains between enemies", "Short range", "Breaks shields"],
+    role: "Throws lightning that jumps between nearby enemies and does double damage to shields. Short range.",
     targets: "both",
     dmgType: "energy",
     levels: [
@@ -114,7 +120,8 @@ export const TOWERS: Record<TowerType, TowerDef> = {
   },
   flak: {
     name: "Flak",
-    role: "Dedicated anti-air with a small blast. Cannot hit ground units at all.",
+    tags: ["Flak bursts", "Air only", "Medium range"],
+    role: "Anti-air guns that burst among flyers. Cannot hit ground units at all.",
     targets: "air",
     dmgType: "explosive",
     levels: [
@@ -123,13 +130,14 @@ export const TOWERS: Record<TowerType, TowerDef> = {
       { cost: 80, dmg: 60, rate: 1.3, range: 4, splash: 1 },
     ],
     specs: {
-      a: { name: "Skyburst", desc: "Wide blast for drone clouds.", cost: 130, dmg: 62, rate: 1.3, range: 4, splash: 1.9 },
-      b: { name: "Seeker", desc: "Long range armour-piercing shots for gunships.", cost: 130, dmg: 190, rate: 1, range: 5.2 },
+      a: { name: "Skyburst", desc: "Wide blast for imp clouds.", cost: 130, dmg: 62, rate: 1.3, range: 4, splash: 1.9 },
+      b: { name: "Seeker", desc: "Long-range heavy shots for armoured wyverns.", cost: 130, dmg: 190, rate: 1, range: 5.2 },
     },
   },
   frost: {
     name: "Frost Vent",
-    role: "Pulses once a second, slowing everything in range. Almost no damage; it buys time for other towers.",
+    tags: ["Frost pulse", "Slows everything", "Short range", "No damage"],
+    role: "Pulses once a second, slowing everything in range. No damage of its own; it buys time for other towers.",
     targets: "both",
     dmgType: "none",
     levels: [
@@ -142,9 +150,10 @@ export const TOWERS: Record<TowerType, TowerDef> = {
       b: { name: "Brittle", desc: "Slowed targets take 30% more damage from every tower.", cost: 140, dmg: 0, rate: 1, range: 2.5, slow: 0.5, slowDur: 1.5, brittle: 0.3 },
     },
   },
-  relay: {
-    name: "Relay",
-    role: "Does not attack. Boosts the damage of towers in the 8 surrounding cells. Bonuses from several relays do not stack.",
+  beacon: {
+    name: "Beacon",
+    tags: ["Support", "Boosts neighbours"],
+    role: "Does not attack. Boosts the damage of towers in the 8 surrounding cells. Bonuses from several beacons do not stack.",
     targets: "both",
     dmgType: "none",
     levels: [
@@ -157,20 +166,21 @@ export const TOWERS: Record<TowerType, TowerDef> = {
       b: { name: "Uplink", desc: "Range bonus rises to 35%.", cost: 150, dmg: 0, rate: 0, range: 0, buffDmg: 0.25, buffRange: 0.35 },
     },
   },
-  sentinel: {
-    name: "Sentinel",
-    role: "The counter to goblins. Always fires at the enemy with the least health left, so it picks thieves out of a crowd and finishes off anything wounded. Long reach, hits ground and air. Its targeting cannot be changed, and armour blunts its small rounds.",
+  laser: {
+    name: "Laser Sentry",
+    tags: ["Laser", "Weakest target", "Medium range", "Counters goblins"],
+    role: "A laser that always burns the enemy with the least health left, so it picks goblins out of a crowd and finishes off the wounded. Hits ground and air. Armour blunts it, and its targeting cannot be changed.",
     targets: "both",
     dmgType: "kinetic",
     fixedTargeting: "weak",
     levels: [
-      { cost: 45, dmg: 7, rate: 2.5, range: 3.2 },
-      { cost: 40, dmg: 11, rate: 2.6, range: 3.4 },
-      { cost: 70, dmg: 16, rate: 2.8, range: 3.8 },
+      { cost: 45, dmg: 7, rate: 2.5, range: 3.6 },
+      { cost: 40, dmg: 11, rate: 2.6, range: 3.6 },
+      { cost: 70, dmg: 16, rate: 2.8, range: 4 },
     ],
     specs: {
-      a: { name: "Picket", desc: "Fires twice as fast.", cost: 120, dmg: 16, rate: 5.6, range: 3.8 },
-      b: { name: "Longwatch", desc: "Heavier rounds with much longer reach.", cost: 120, dmg: 24, rate: 2.8, range: 5.4 },
+      a: { name: "Picket", desc: "Fires twice as fast.", cost: 120, dmg: 16, rate: 5.6, range: 4 },
+      b: { name: "Longwatch", desc: "A stronger beam with much longer reach.", cost: 120, dmg: 24, rate: 2.8, range: 5.4 },
     },
   },
 };
@@ -207,55 +217,56 @@ export interface UnitDef {
   };
 }
 
+// Dungeon monsters pouring out of the gate. Health here is round one; every round scales it (hpScale).
 export const UNITS: Record<UnitType, UnitDef> = {
-  scuttler: {
-    name: "Scuttler",
-    desc: "Weak and numerous. Punishes a defence with no splash.",
-    hp: 22, shield: 0, armor: 0, speed: 1.6, flying: false, lives: 1, bounty: 2, threat: 1, slowResist: 0,
+  kobold: {
+    name: "Kobold",
+    desc: "Small dog-faced raiders with crude spears. Weak alone, dangerous in packs: punishes a defence with no splash.",
+    hp: 29, shield: 0, armor: 0, speed: 1.6, flying: false, lives: 1, bounty: 2, threat: 1, slowResist: 0,
     send: { count: 5, cost: 20, income: 5, unlock: 1 },
   },
-  runner: {
-    name: "Runner",
-    desc: "Fast. Slips past slow-firing towers and short kill zones.",
-    hp: 42, shield: 0, armor: 0, speed: 2.8, flying: false, lives: 1, bounty: 3, threat: 2, slowResist: 0,
+  hellhound: {
+    name: "Hellhound",
+    desc: "A fast, burning hound. Slips past slow-firing towers and short kill zones.",
+    hp: 55, shield: 0, armor: 0, speed: 2.8, flying: false, lives: 1, bounty: 3, threat: 2, slowResist: 0,
     send: { count: 3, cost: 25, income: 5, unlock: 1 },
   },
   goblin: {
     name: "Goblin",
     desc: "A sneaky thief with almost no health. Towers ignore it while anything else is in range, unless they target the weakest. It costs no lives, but every goblin that reaches the core steals gold from the defender's payout and hands it to the sender.",
-    hp: 10, shield: 0, armor: 0, speed: 3.2, flying: false, lives: 0, bounty: 1, threat: 1, slowResist: 0,
+    hp: 12, shield: 0, armor: 0, speed: 3.2, flying: false, lives: 0, bounty: 1, threat: 1, slowResist: 0,
     sneaky: true,
     loot: { base: 6, perRound: 1 },
     send: { count: 6, cost: 30, income: 2, unlock: 2 },
   },
-  shellback: {
-    name: "Shellback",
-    desc: "Carries a shield that halves non-energy damage until it is broken.",
-    hp: 70, shield: 90, armor: 0, speed: 1.3, flying: false, lives: 1, bounty: 7, threat: 5, slowResist: 0,
+  orc: {
+    name: "Orc Shieldbearer",
+    desc: "An orc behind a glowing barrier shield that halves non-energy damage until it breaks. Lightning breaks it fastest.",
+    hp: 90, shield: 115, armor: 0, speed: 1.3, flying: false, lives: 1, bounty: 7, threat: 5, slowResist: 0,
     send: { count: 2, cost: 40, income: 8, unlock: 2 },
   },
-  drone: {
-    name: "Drone",
-    desc: "Flies in a straight line from spawn to core, ignoring the path.",
-    hp: 55, shield: 0, armor: 0, speed: 1.9, flying: true, lives: 1, bounty: 5, threat: 3, slowResist: 0,
+  imp: {
+    name: "Imp",
+    desc: "A winged demon that flies straight from the gate to the core, ignoring the road.",
+    hp: 70, shield: 0, armor: 0, speed: 1.9, flying: true, lives: 1, bounty: 5, threat: 3, slowResist: 0,
     send: { count: 3, cost: 40, income: 7, unlock: 3 },
   },
-  hulk: {
-    name: "Hulk",
-    desc: "Slow and heavily armoured. Shrugs off small hits.",
-    hp: 260, shield: 0, armor: 4, speed: 0.9, flying: false, lives: 2, bounty: 9, threat: 6, slowResist: 0,
+  ogre: {
+    name: "Armoured Ogre",
+    desc: "Slow, huge and plated in iron. Armour shrugs off small hits; piercing bolts go straight through.",
+    hp: 340, shield: 0, armor: 4, speed: 0.9, flying: false, lives: 2, bounty: 9, threat: 6, slowResist: 0,
     send: { count: 1, cost: 50, income: 8, unlock: 4 },
   },
-  gunship: {
-    name: "Gunship",
-    desc: "Armoured flyer. Needs dedicated anti-air or piercing damage.",
-    hp: 300, shield: 0, armor: 3, speed: 1.1, flying: true, lives: 2, bounty: 12, threat: 8, slowResist: 0,
+  wyvern: {
+    name: "Wyvern",
+    desc: "An armoured dragon on the wing. Needs dedicated anti-air or piercing bolts.",
+    hp: 390, shield: 0, armor: 3, speed: 1.1, flying: true, lives: 2, bounty: 12, threat: 8, slowResist: 0,
     send: { count: 1, cost: 90, income: 12, unlock: 7 },
   },
-  colossus: {
-    name: "Colossus",
+  minotaur: {
+    name: "Minotaur",
     desc: "Boss. Huge health, heavy armour, and it ignores half of every slow.",
-    hp: 850, shield: 0, armor: 5, speed: 0.7, flying: false, lives: 6, bounty: 45, threat: 30, slowResist: 0.5,
+    hp: 1100, shield: 0, armor: 5, speed: 0.7, flying: false, lives: 6, bounty: 45, threat: 30, slowResist: 0.5,
     send: { count: 1, cost: 250, income: 25, unlock: 9 },
   },
 };

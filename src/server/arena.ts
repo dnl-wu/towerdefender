@@ -7,6 +7,7 @@ import {
   applyAction, bothCommitted, commit, createDuel, forfeit, replayDuel, resolveRound,
   type Action, type ActionResult, type DuelState, type RoundRecord, type Winner,
 } from "../engine/duel.ts";
+import { readMatchLog, writeMatchLog } from "../engine/match-log.ts";
 import { debrief, type Debrief } from "../engine/report.ts";
 import { bots, latestPlaybook, userById, type User } from "./accounts.ts";
 import { all, get, run } from "./db.ts";
@@ -92,7 +93,7 @@ export interface MatchRow {
 
 function recover(a: Arena) {
   for (const row of all<MatchRow>("SELECT * FROM matches WHERE status = 'active'")) {
-    const state = replayDuel(row.seed, JSON.parse(row.log), row.resolved_rounds);
+    const state = rebuild(row);
     const users: [number, number] = [row.p0, row.p1];
     const botLevels = users.map((id) => userById(id)?.bot_level ?? null) as [number | null, number | null];
     const m: LiveMatch = {
@@ -110,7 +111,7 @@ function persist(m: LiveMatch) {
   const s = m.state;
   run(
     "UPDATE matches SET log = ?, resolved_rounds = ?, lives0 = ?, lives1 = ?, calls0 = ?, calls1 = ? WHERE id = ?",
-    JSON.stringify(s.log), s.history.length, s.lanes[0].lives, s.lanes[1].lives, m.calls[0], m.calls[1], m.id,
+    writeMatchLog(s), s.history.length, s.lanes[0].lives, s.lanes[1].lives, m.calls[0], m.calls[1], m.id,
   );
 }
 
@@ -212,8 +213,8 @@ function create(mode: Mode, a: User, b: User, seed?: number): LiveMatch {
     deadline: 0, timer: null, waiters: new Set(), misses: [0, 0], acted: [false, false], calls: [0, 0], lastCall: [null, null],
   };
   run(
-    "INSERT INTO matches (id, seed, mode, status, p0, p1, log, lives0, lives1, playbook0, playbook1, created_at) VALUES (?, ?, ?, 'active', ?, ?, '[[[],[]]]', ?, ?, ?, ?, ?)",
-    id, matchSeed, mode, a.id, b.id, m.state.lanes[0].lives, m.state.lanes[1].lives,
+    "INSERT INTO matches (id, seed, mode, status, p0, p1, log, lives0, lives1, playbook0, playbook1, created_at) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)",
+    id, matchSeed, mode, a.id, b.id, writeMatchLog(m.state), m.state.lanes[0].lives, m.state.lanes[1].lives,
     latestPlaybook(a.id)?.version ?? null, latestPlaybook(b.id)?.version ?? null, Date.now(),
   );
   arena().live.set(id, m);
@@ -344,7 +345,8 @@ export function matchDebrief(row: MatchRow, player: 0 | 1): Debrief | null {
 
 /** Rebuild a stored match. A forfeit is not in the action log, so the stored result is restored on top. */
 export function rebuild(row: MatchRow): DuelState {
-  const state = replayDuel(row.seed, JSON.parse(row.log), row.resolved_rounds);
+  const log = readMatchLog(row.log);
+  const state = replayDuel(row.seed, log.rounds, row.resolved_rounds, log.rulesVersion);
   if (row.status === "finished" && state.status !== "finished") {
     state.status = "finished";
     state.winner = row.winner === "draw" ? "draw" : (Number(row.winner) as 0 | 1);

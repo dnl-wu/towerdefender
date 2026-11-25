@@ -2,6 +2,7 @@ import {
   RULES, TARGETINGS, TOWERS, TOWER_TYPES, UNITS, UNIT_TYPES, defenceResale, scannerPrice, sendCap,
   type Spec, type Targeting, type TowerType, type UnitType,
 } from "./data.ts";
+import { canonicalAction, CURRENT_RULES } from "./match-log.ts";
 import { runBattle, type BattleResult, type Tower } from "./battle.ts";
 import { generateMap, isBuildable, type GameMap } from "./map.ts";
 import { baseWave, sendGroups } from "./waves.ts";
@@ -100,10 +101,10 @@ function openLane(lane: Lane): OpenLane {
   return { towers: lane.towers.map((t) => ({ ...t })), lives: lane.lives, income: lane.income, gold: lane.gold };
 }
 
-export function createDuel(seed: number): DuelState {
+export function createDuel(seed: number, rulesVersion = CURRENT_RULES): DuelState {
   const lanes: [Lane, Lane] = [newLane(), newLane()];
   return {
-    seed, map: generateMap(seed), round: 1, status: "planning", lanes, open: [openLane(lanes[0]), openLane(lanes[1])],
+    seed, map: generateMap(seed, rulesVersion), round: 1, status: "planning", lanes, open: [openLane(lanes[0]), openLane(lanes[1])],
     history: [], winner: null, endReason: null, log: [[[], []]],
   };
 }
@@ -114,7 +115,7 @@ const fail = (error: string): ActionResult => ({ ok: false, error });
 
 /** Validate and apply one action for a player. Rejected actions change nothing. */
 export function applyAction(state: DuelState, player: 0 | 1, action: Action): ActionResult {
-  const order: Action = action?.type === "sell" ? { ...action, pricing: "whole-percent" } : action;
+  const order: Action = action?.type === "sell" ? { ...action, pricing: "whole-percent" } : canonicalAction(action);
   return applyRecordedAction(state, player, order);
 }
 
@@ -200,7 +201,7 @@ function apply(state: DuelState, player: 0 | 1, lane: Lane, a: Action): ActionRe
       if (!t) return fail(`You have no tower #${a.id}.`);
       if (!TARGETINGS.includes(a.mode)) return fail(`Unknown targeting "${a.mode}". Options: ${TARGETINGS.join(", ")}.`);
       const fixed = TOWERS[t.type].fixedTargeting;
-      if (fixed) return fail(`${TOWERS[t.type].name}s always target ${fixed}; that cannot be changed.`);
+      if (fixed) return fail(`A ${TOWERS[t.type].name} always targets ${fixed}; that cannot be changed.`);
       t.targeting = a.mode;
       return { ok: true, note: `Tower #${t.id} now targets ${a.mode}.` };
     }
@@ -323,8 +324,8 @@ export function forfeit(state: DuelState, loser: 0 | 1, reason: string): void {
  * rounds had been fought; a trailing log entry beyond that is a planning phase
  * still in progress. Used by replays and to verify determinism.
  */
-export function replayDuel(seed: number, log: [Action[], Action[]][], resolvedRounds: number): DuelState {
-  const state = createDuel(seed);
+export function replayDuel(seed: number, log: [Action[], Action[]][], resolvedRounds: number, rulesVersion = CURRENT_RULES): DuelState {
+  const state = createDuel(seed, rulesVersion);
   for (let r = 0; r < log.length && state.status === "planning"; r++) {
     for (const p of [0, 1] as const) for (const a of log[r][p]) applyRecordedAction(state, p, a);
     if (r < resolvedRounds) resolveRound(state);

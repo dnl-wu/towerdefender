@@ -2,8 +2,9 @@
 // The spectator view: the miniature on a dark table, five small instruments
 // around it, and one popover at a time for anyone curious about the machinery.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { effectiveStats, type Tower } from "../engine/battle.ts";
+import { effectiveStats, type EffectiveStats, type Tower } from "../engine/battle.ts";
 import { RULES, TOWERS, UNITS, defenceResale, hpScale, lootFor, type TowerType, type UnitType } from "../engine/data.ts";
+import { unitVitals, type RulesVersion } from "../engine/match-log.ts";
 import { baseWave, summarizeWave, waveArchetype } from "../engine/waves.ts";
 import type { Feed, FeedPlayer, LaneInfo, MatchView } from "./feed.ts";
 import { UNIT_ART, towerModel, warden, type Mood } from "./models.ts";
@@ -39,7 +40,7 @@ function modelIcon(key: string, build: () => ReturnType<typeof towerModel>): str
   }
   return url;
 }
-const UnitIcon = ({ unit }: { unit: UnitType }) => <img className="block size-7 flex-none rounded-md bg-linear-to-b from-[#cfc1a4] to-[#b1a385] ring-1 ring-inset ring-charcoal/55" alt="" src={modelIcon("u:" + unit, () => UNIT_ART[unit].model())} />;
+const UnitIcon = ({ unit }: { unit: UnitType }) => <img className="block size-7 flex-none rounded-md bg-linear-to-b from-[#cfc1a4] to-[#b1a385] ring-1 ring-inset ring-charcoal/55" alt={UNITS[unit].name} src={modelIcon("u:" + unit, () => UNIT_ART[unit].model())} />;
 const TowerIcon = ({ type, level }: { type: TowerType; level: number }) => <img className="block size-7 flex-none rounded-md bg-linear-to-b from-[#cfc1a4] to-[#b1a385] ring-1 ring-inset ring-charcoal/55" alt="" src={modelIcon(`t:${type}:${level}`, () => towerModel(type, level))} />;
 
 /** The agent's warden. It blinks on its own; its mood comes from what is actually happening in the match. */
@@ -263,13 +264,13 @@ export function MatchViewer({ initial, pollUrl, side: startSide = 0, onReady }: 
             </div>
 
             <div className="hud-slot bottom-2 right-2 items-end sm:bottom-4 sm:right-4">
-              {open === "wave" && <WavePop hud={hud} />}
+              {open === "wave" && <WavePop hud={hud} rulesVersion={pb.map.rulesVersion} />}
               <button className="instrument flex h-12 items-center gap-1 px-1 max-sm:max-w-[calc(100vw-166px)] max-sm:overflow-x-auto sm:gap-2 sm:px-3" {...trigger("wave", `${hud.wave.forecast ? "Next" : "Current"} wave: ${THEMES[hud.wave.theme] ?? hud.wave.theme}. Open wave details.`)}>
                 <span className="figure hidden sm:flex"><i>{hud.wave.forecast ? "Next wave" : `Wave ${hud.wave.round}`}</i><b className="text-[13px]! text-terracotta">{THEMES[hud.wave.theme] ?? hud.wave.theme}</b></span>
                 <span className="hidden h-7 w-px bg-bronze sm:block" />
                 {hud.wave.entries.length === 0 && <span className="caption">Match over</span>}
                 {hud.wave.entries.map((e) => (
-                  <span className="flex items-center gap-1 [&_i]:hidden sm:[&_i]:inline [&_b]:text-[15px]/4" key={e.unit}><UnitIcon unit={e.unit} /><span className="figure"><b>{e.count}</b><i>{UNIT_ART[e.unit].kind}</i></span></span>
+                  <span className="flex items-center gap-1 [&_i]:hidden sm:[&_i]:inline [&_b]:text-[15px]/4" key={e.unit}><UnitIcon unit={e.unit} /><span className="figure"><b>{e.count}</b><i className="capitalize">{e.unit}</i></span></span>
                 ))}
               </button>
             </div>
@@ -283,7 +284,7 @@ export function MatchViewer({ initial, pollUrl, side: startSide = 0, onReady }: 
               </div>
             )}
 
-            {tipTower && tip && <div className="instrument pointer-events-none absolute z-3 -translate-x-1/2 -translate-y-[calc(100%+4px)] whitespace-nowrap px-2 py-1.5 [&>b]:block [&>b]:text-xs [&_i]:ml-1 [&_i]:font-normal [&_i]:text-sand [&>span]:text-[11px] [&>span]:text-sand" style={{ left: clampX(tip.x, 200), top: tip.y }}><TowerLine t={tipTower} pb={pb} /></div>}
+            {tipTower && tip && <div className="instrument pointer-events-none absolute z-3 -translate-x-1/2 -translate-y-[calc(100%+4px)] whitespace-nowrap px-2 py-1.5 [&>b]:block [&>b]:text-xs [&_i]:ml-1 [&_i]:font-normal [&_i]:text-sand [&>span]:text-[11px] [&>span]:text-sand" style={{ left: clampX(tip.x, 246), top: tip.y }}><TowerLine t={tipTower} pb={pb} /></div>}
             {pinned && pin && <div className="popover" data-tdv-pop role="dialog" aria-label="Tower details" style={{ left: popLeft, top: popTop, maxHeight: Math.max(160, stageH - popTop - 72) }}><TowerPop t={pinned} pb={pb} idx={side} /></div>}
           </>
         )}
@@ -311,12 +312,19 @@ function Count({ value }: { value: number }) {
   return <b>{shown}</b>;
 }
 
+function attackSummary(t: Tower, s: EffectiveStats): string {
+  if (t.type === "beacon") return "Support · adjacent towers";
+  const reach = s.range >= 4.5 ? "Long range" : s.range >= 3 ? "Medium range" : "Short range";
+  const pattern = s.slow ? "Area slow" : s.splash ? "Splash" : s.chain ? "Chain" : "Single target";
+  return `${reach} · ${pattern} · ${s.targets === "both" ? "Air & ground" : s.targets === "air" ? "Air only" : "Ground only"}`;
+}
+
 function TowerLine({ t, pb }: { t: Tower; pb: Playback }) {
   const s = effectiveStats(t, pb.map, pb.towers), def = TOWERS[t.type];
   return (
     <>
       <b>{def.name} <i>{towerLabel(t)}</i></b>
-      <span>{t.type === "relay" ? `Boosts neighbours +${Math.round((s.buffDmg ?? 0) * 100)}% damage` : t.type === "frost" ? `Slows ${Math.round((s.slow ?? 0) * 100)}% · range ${s.range.toFixed(1)}` : `${(s.dmg * s.rate).toFixed(1)} damage/s · range ${s.range.toFixed(1)} · targets ${t.targeting}`}</span>
+      <span>{attackSummary(t, s)}</span>
     </>
   );
 }
@@ -446,20 +454,20 @@ function EconPop({ pb, idx, hud }: { pb: Playback; idx: 0 | 1; hud: Hud }) {
   );
 }
 
-function WavePop({ hud }: { hud: Hud }) {
+function WavePop({ hud, rulesVersion }: { hud: Hud; rulesVersion: RulesVersion }) {
   const scale = hpScale(hud.wave.round);
   return (
     <div className="popover bottom-[calc(100%+8px)] right-0" data-tdv-pop role="dialog" aria-label="Wave details">
       <header><div><b>{THEMES[hud.wave.theme] ?? hud.wave.theme}</b><span>{hud.wave.forecast ? "Next wave" : "Wave"} {hud.wave.round} · health ×{scale}</span></div></header>
       {hud.wave.entries.map((e) => {
-        const u = UNITS[e.unit];
+        const u = UNITS[e.unit], vitals = unitVitals(e.unit, rulesVersion);
         return (
           <section key={e.unit} className="flex items-start gap-2 [&>img]:size-9 [&_p]:text-sand">
             <UnitIcon unit={e.unit} />
             <div>
-              <h4>{e.count} × {u.name}{e.sent > 0 && <em> · {e.sent} sent by the opponent</em>}</h4>
+              <h4>{e.count} × {u.name} · {UNIT_ART[e.unit].kind}{e.sent > 0 && <em> · {e.sent} sent by the opponent</em>}</h4>
               <p>{u.desc}</p>
-              <code>{Math.round(u.hp * scale)} hp{u.shield ? ` · ${Math.round(u.shield * scale)} shield` : ""}{u.armor ? ` · ${u.armor} armour` : ""} · speed {u.speed}{u.flying ? " · flying" : ""} · {u.loot ? `steals ${lootFor(e.unit, hud.wave.round)} gold, no lives` : `costs ${u.lives} ${u.lives === 1 ? "life" : "lives"}`} · {u.bounty}g bounty</code>
+              <code>{Math.round(vitals.hp * scale)} hp{vitals.shield ? ` · ${Math.round(vitals.shield * scale)} shield` : ""}{u.armor ? ` · ${u.armor} armour` : ""} · speed {u.speed}{u.flying ? " · flying" : ""} · {u.loot ? `steals ${lootFor(e.unit, hud.wave.round)} gold, no lives` : `costs ${u.lives} ${u.lives === 1 ? "life" : "lives"}`} · {u.bounty}g bounty</code>
             </div>
           </section>
         );
@@ -469,21 +477,38 @@ function WavePop({ hud }: { hud: Hud }) {
   );
 }
 
+// Matchups describe what the tower actually has to work with in a lane.
+const MATCHUPS: Record<TowerType, [advantage: string, limitation: string]> = {
+  gatling: ["Fast, unarmoured raiders", "Armour absorbs damage from each bullet"],
+  cannon: ["Packed ground waves", "Flyers and targets inside its minimum range"],
+  ballista: ["Armoured ogres, wyverns and bosses", "Slow reload against a swarm"],
+  tesla: ["Shieldbearers and tight packs", "Widely spaced raiders break the chain"],
+  flak: ["Flying imps and wyverns", "Ground units pass underneath"],
+  frost: ["Fast waves in a bend", "Needs a damage tower nearby"],
+  laser: ["Goblin thieves and wounded targets", "Armour blunts each beam"],
+  beacon: ["A cluster of adjacent damage towers", "An isolated Beacon gives no bonus"],
+};
+
 function TowerPop({ t, pb, idx }: { t: Tower; pb: Playback; idx: 0 | 1 }) {
   const def = TOWERS[t.type], s = effectiveStats(t, pb.map, pb.towers), nowStats = pb.towerNow(t.id), notes = pb.towerNotes[idx].get(t.id) ?? [];
+  const [advantage, limitation] = MATCHUPS[t.type];
+  const focusedArc = t.type === "tesla" && t.spec === "b";
   const next = t.spec ? null : t.level < 3 ? def.levels[t.level] : null;
   return (
     <>
-      <header><TowerIcon type={t.type} level={t.level} /><div><b>{def.name}</b><span>{towerLabel(t)} · cell {t.x},{t.y} · hits {def.targets === "both" ? "ground and air" : def.targets}</span></div></header>
-      <p className="text-sand">{def.role}</p>
+      <header><TowerIcon type={t.type} level={t.level} /><div><b>{def.name}</b><span>{towerLabel(t)} · cell {t.x},{t.y}</span></div></header>
+      <p className="font-medium text-parchment">{attackSummary(t, s)}</p>
+      {t.spec && <p className="text-sand">{def.specs[t.spec].desc}</p>}
+      <Row k="Best use" v={focusedArc ? "Breaking one heavy shield" : advantage} tone="good" />
+      <Row k="Limitation" v={focusedArc ? "Only hits one enemy per shot" : limitation} />
       <Section title="Now">
-        {t.type !== "relay" && t.type !== "frost" && <Row k="Damage per second" v={(s.dmg * s.rate).toFixed(1)} />}
-        {t.type !== "relay" && <Row k="Range" v={`${s.range.toFixed(2)} cells`} />}
+        {t.type !== "beacon" && t.type !== "frost" && <Row k="Damage per second" v={(s.dmg * s.rate).toFixed(1)} />}
+        {t.type !== "beacon" && <Row k="Range" v={`${s.minRange ? s.minRange + "–" : ""}${s.range.toFixed(2)} cells`} />}
         {s.splash ? <Row k="Blast radius" v={s.splash} /> : null}
         {s.chain ? <Row k="Jumps" v={s.chain} /> : null}
         {s.slow ? <Row k="Slow" v={`${Math.round(s.slow * 100)}%`} /> : null}
         {s.buffDmg ? <Row k="Boost to neighbours" v={`+${Math.round(s.buffDmg * 100)}% damage${s.buffRange ? `, +${Math.round(s.buffRange * 100)}% range` : ""}`} /> : null}
-        {t.type !== "relay" && t.type !== "frost" && <Row k="Targeting" v={t.targeting} />}
+        {t.type !== "beacon" && t.type !== "frost" && <Row k="Targeting" v={t.targeting} />}
       </Section>
       <Section title="Performance">
         {nowStats && <Row k="This battle" v={`${nowStats.dmg} damage · ${nowStats.kills} kills`} />}

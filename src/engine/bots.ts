@@ -68,7 +68,7 @@ const GOLD_PER_LIFE = 12;
 const pain = (r: { livesLost: number; stolen: number }) => r.livesLost + r.stolen / GOLD_PER_LIFE;
 
 const COUNTER: Record<UnitType, TowerType> = {
-  scuttler: "mortar", runner: "nailgun", goblin: "sentinel", shellback: "coil", drone: "flak", hulk: "harpoon", gunship: "flak", colossus: "harpoon",
+  kobold: "cannon", hellhound: "gatling", goblin: "laser", orc: "tesla", imp: "flak", ogre: "ballista", wyvern: "flak", minotaur: "ballista",
 };
 
 class BotTurn {
@@ -91,7 +91,7 @@ class BotTurn {
     // Weaker bots place sloppily.
     const spread = this.level === 1 ? Math.ceil(tiles.length * 0.6) : this.level === 2 ? 5 : 1;
     const pick = tiles[this.rng.int(0, Math.min(spread, tiles.length) - 1)];
-    const targeting = this.level >= 4 && (type === "harpoon") ? "strong" : "first";
+    const targeting = this.level >= 4 && (type === "ballista") ? "strong" : "first";
     return applyAction(this.state, this.player, { type: "build", tower: type, x: pick.x, y: pick.y, targeting }).ok;
   }
 
@@ -108,7 +108,7 @@ class BotTurn {
 
   pickSpec(t: Tower): "a" | "b" {
     // A sensible default per tower; top bots are not trying to be clever here.
-    const pref: Record<TowerType, "a" | "b"> = { nailgun: "a", mortar: "a", harpoon: "b", coil: "a", flak: "a", frost: "b", relay: "a", sentinel: "a" };
+    const pref: Record<TowerType, "a" | "b"> = { gatling: "a", cannon: "a", ballista: "b", tesla: "a", flak: "a", frost: "b", beacon: "a", laser: "a" };
     return this.level >= 5 ? pref[t.type] : this.rng.chance(0.5) ? "a" : "b";
   }
 
@@ -121,7 +121,7 @@ class BotTurn {
     if (this.build(want)) return true;
     if (this.upgrade(want)) return true;
     if (this.upgrade()) return true;
-    return this.build("nailgun");
+    return this.build("gatling");
   }
 
   simulate(extra: SpawnGroup[] = []) {
@@ -158,7 +158,7 @@ class BotTurn {
 
 /** Try each affordable attack against the opponent's round-opening board and pick the one that hurts most. */
 function chooseAttack(state: DuelState, opp: OpponentSnapshot, budget: number): UnitType {
-  let best: UnitType = "scuttler", bestScore = -Infinity;
+  let best: UnitType = "kobold", bestScore = -Infinity;
   const neutral = baseWave(state.seed, state.round);
   for (const unit of UNIT_TYPES) {
     const { cost, income, unlock } = UNITS[unit].send;
@@ -187,13 +187,13 @@ export function playBotTurn(state: DuelState, player: 0 | 1, level: number, opp:
 
   if (level <= 1) {
     // Spends everything on a coin flip between two towers. Never sends.
-    for (let i = 0; i < 8 && lane.gold >= 40; i++) if (!turn.build(rng.chance(0.7) ? "nailgun" : "mortar")) break;
+    for (let i = 0; i < 8 && lane.gold >= 40; i++) if (!turn.build(rng.chance(0.7) ? "gatling" : "cannon")) break;
     return;
   }
 
   if (level === 2) {
-    const rotation: TowerType[] = ["nailgun", "mortar", "nailgun", "flak", "harpoon", "coil"];
-    if (round > 3) turn.send("scuttler", lane.gold * 0.2);
+    const rotation: TowerType[] = ["gatling", "cannon", "gatling", "flak", "ballista", "tesla"];
+    if (round > 3) turn.send("kobold", lane.gold * 0.2);
     for (let i = 0; i < 8 && lane.gold >= 40; i++) {
       if (rng.chance(0.3) && turn.upgrade()) continue;
       if (!turn.build(rotation[(lane.towers.length + i) % rotation.length])) break;
@@ -203,17 +203,17 @@ export function playBotTurn(state: DuelState, player: 0 | 1, level: number, opp:
 
   if (level === 3) {
     // Builds for the forecast, without checking whether it is enough.
-    if (round > 2) turn.send("scuttler", lane.gold * 0.25);
+    if (round > 2) turn.send("kobold", lane.gold * 0.25);
     const main = (Object.keys(wave) as UnitType[]).sort((a, b) => (wave[b] ?? 0) * UNITS[b].threat - (wave[a] ?? 0) * UNITS[a].threat);
     for (let i = 0; i < 8 && lane.gold >= 40; i++) if (!turn.improve(main[i % Math.max(1, Math.min(2, main.length))])) break;
     return;
   }
 
   // Levels 4 and 5 simulate the round and buy only the defence they need.
-  let expected: SpawnGroup[] = sendGroups([{ unit: "scuttler", orders: 1 + Math.floor(round / 4) }]);
+  let expected: SpawnGroup[] = sendGroups([{ unit: "kobold", orders: 1 + Math.floor(round / 4) }]);
   if (level >= 5) {
     // Assume the opponent repeats, and slightly escalates, their last send.
-    const guess = opp.lastSent.length ? opp.lastSent : round >= 2 ? [{ unit: "scuttler" as UnitType, orders: 1 }] : [];
+    const guess = opp.lastSent.length ? opp.lastSent : round >= 2 ? [{ unit: "kobold" as UnitType, orders: 1 }] : [];
     expected = sendGroups(guess.map((o) => ({ unit: o.unit, orders: o.orders + (round > 4 ? 1 : 0) })));
   }
   turn.defendBySimulation(expected, level >= 5 ? 0 : 1);
@@ -225,7 +225,7 @@ export function playBotTurn(state: DuelState, player: 0 | 1, level: number, opp:
   const attackBudget = Math.min(lane.gold * (1 - reserve), sendCap(round));
   const unit = chooseAttack(state, opp, attackBudget);
   turn.send(unit, attackBudget);
-  if (level >= 5) turn.send("scuttler", lane.gold * 0.8);
+  if (level >= 5) turn.send("kobold", lane.gold * 0.8);
   // Leftover gold goes into upgrades rather than sitting idle.
   if (lane.gold > 150) turn.upgrade();
 }

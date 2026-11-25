@@ -10,7 +10,7 @@ The game is deterministic, so with everything visible it reduces to calculation,
 
 - **Private:** the opponent's board, gold and income, and everything they do this round.
 - **Public:** their lives, the raiders they send at you (when they arrive), the map and the neutral waves.
-- **Earned by contact:** a tower that strikes or slows a raider you sent is revealed after the round. Sends become probes; a Relay or an idle tower can stay secret.
+- **Earned by contact:** a tower that strikes or slows a raider you sent is revealed after the round. Sends become probes; a Beacon or an idle tower can stay secret.
 - **Bought:** a Scanner shows the whole base as the round opened. It costs 45 gold in round 1, 4 less each round, and 5 from round 11, so it is a real sacrifice early, when bases are small, and nearly free late, when one look can redirect hundreds of gold of raiders. One per round; the turn stays open to act on it. The value of a look depends on whether it would change your decision ([value of perfect information](https://inst.eecs.berkeley.edu/~cs188/textbook/vpis/vpi.html)).
 
 What you know goes stale: entries carry the round they were seen, and a later Scanner drops towers that are gone.
@@ -19,32 +19,32 @@ Spectating follows the same rules, because anything a viewer can load, an agent 
 
 ## Feints and resale
 
-Kuhn poker shows how a small game can combine an observable action with private information: the same public bet supports several readings ([OpenSpiel's Kuhn poker](https://github.com/google-deepmind/open_spiel/blob/master/open_spiel/games/kuhn_poker/kuhn_poker.cc)). Here the opponent's opening board is public and this round's changes are private. A mortar on the first bend might be a lasting commitment to splash, or bait for a drone send just before the defender sells it for flak. An attacker who always believes the board can be punished; one who always disbelieves it wastes gold.
+Kuhn poker shows how a small game can combine an observable action with private information: the same public bet supports several readings ([OpenSpiel's Kuhn poker](https://github.com/google-deepmind/open_spiel/blob/master/open_spiel/games/kuhn_poker/kuhn_poker.cc)). A Scanner reveals the opponent’s opening board. Their moves during the round stay hidden. A cannon on the first bend might be a lasting commitment to splash, or bait for an imp send just before the defender sells it for flak. An attacker who always believes the board can be punished; one who always disbelieves it wastes gold.
 
-**Selling returns 70% of everything spent on a tower, rounded down.** That makes a pivot affordable but never free. Selling a 70-gold mortar to buy a 50-gold flak tower:
+**Selling returns 70% of everything spent on a tower, rounded down.** That makes a pivot affordable but never free. Selling a 70-gold cannon to buy a 50-gold flak tower:
 
-| Refund rate | Sale proceeds | Extra gold needed for flak | Gold lost on the mortar |
+| Refund rate | Sale proceeds | Extra gold needed for flak | Gold lost on the cannon |
 | --- | ---: | ---: | ---: |
 | 50% | 35 | 15 | 35 |
 | 60% | 42 | 8 | 28 |
 | **70%** | **49** | **1** | **21** |
 | 80% | 56 | 0 | 14 |
 
-At 70% the switch needs one gold more than the sale returns. Reversing it costs another 15 on the flak sale, so a full feint costs 36 gold, about one nailgun. Upgrades count toward the resale value.
+At 70% the switch needs one gold more than the sale returns. Reversing it costs another 15 on the flak sale, so a full feint costs 36 gold, about one gatling. Upgrades count toward the resale value.
 
-## Goblins and Sentinels
+## Goblins and Laser Sentries
 
-A goblin is a thief. It has 10 health (scaled by round like everything else), runs fast, costs no lives, and is **sneaky**: a tower ignores it while any other enemy is in range, unless that tower targets the weakest enemy. Each goblin that reaches the core takes 6 gold plus 1 per round from the defender's payout and gives it to the sender; a defender is never pushed below zero. An order is 6 goblins for 30 gold and adds 2 income.
+A goblin is a thief. It has 12 health (scaled by round like everything else), runs fast, costs no lives, and is **sneaky**: a tower ignores it while any other enemy is in range, unless that tower targets the weakest enemy. Each goblin that reaches the core takes 6 gold plus 1 per round from the defender's payout and gives it to the sender; a defender is never pushed below zero. An order is 6 goblins for 30 gold and adds 2 income.
 
 Sneakiness is what makes goblins a decision rather than a free kill. Without it, a goblin outran its pack, became the "first" target of every tower, and died. Sent at bot-built boards, 90 gold of goblins stole about 7 gold. With it:
 
-| Board (rounds 4, 7 and 10, 69 boards) | Gold stolen by 18 goblins (90 gold) |
+| Board (rounds 4, 7 and 10, 63 boards) | Gold stolen by 18 goblins (90 gold) |
 | --- | ---: |
-| As the bot built it | 40.0 |
-| Plus one Nailgun on the best open tile | 25.9 |
-| Plus one Sentinel on the same tile | 5.8 |
+| As the bot built it | 24.0 |
+| Plus one Gatling on the best open tile | 19.5 |
+| Plus one Laser Sentry on the same tile | 5.3 |
 
-The **Sentinel** (45 gold) always targets the weakest enemy in range, cannot be retargeted, has long reach and hits ground and air. It is the counter: one Sentinel cuts theft by about 85%, against about 35% for a Nailgun of similar price. Any tower set to "weak" also sees goblins, at the cost of whatever it was doing. Splash and chain damage kill goblins incidentally, which is part of the counterplay.
+The **Laser Sentry** (45 gold) always targets the weakest enemy in range, cannot be retargeted, has medium reach and hits ground and air. It is the counter: one Laser Sentry cuts theft by about 78%, against about 19% for a Gatling of similar price. Any tower set to "weak" also sees goblins, at the cost of whatever it was doing. Splash and chain damage kill goblins incidentally, which is part of the counterplay.
 
 ## The difficulty curve
 
@@ -58,11 +58,11 @@ The target was that careless defence dies early, decent defence mid-game, and ev
 
 | Bot | How it plays | Dies in round (median, 10th–90th percentile) |
 | --- | --- | --- |
-| Rustbucket | Random nailguns and mortars | 10 (8–10) |
-| Patchwork | A fixed rotation of towers | 14 (11–16) |
-| Foreman | Builds for the forecast, no checking | 14 (13–18) |
-| Overseer | Simulates each round, buys what is needed | 19 (16–21) |
-| Tyrant | Same, plus simulated attacks | 18 (16–20) |
+| Rustbucket | Random gatlings and cannons | 8 (6–9) |
+| Patchwork | A fixed rotation of towers | 12 (10–14) |
+| Foreman | Builds for the forecast, no checking | 13 (11–15) |
+| Overseer | Simulates each round, buys what is needed | 16 (13–17) |
+| Tyrant | Same, plus simulated attacks | 14 (13–16) |
 
 In head-to-head play the ladder is in strength order, and matches between the two strongest bots end around round 10, decided by sends. Winning means pressuring the other lane, not outlasting it.
 

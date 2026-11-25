@@ -3,6 +3,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { RULES, TARGETINGS, TOWER_TYPES, UNIT_TYPES, scannerPrice } from "../engine/data.ts";
+import { towerAliases, unitAliases } from "../engine/match-log.ts";
 import type { Action } from "../engine/duel.ts";
 import { roundReport } from "../engine/report.ts";
 import { rulesHandbook } from "../engine/rules.ts";
@@ -31,13 +32,13 @@ const fail = (message: string) => ({ content: [{ type: "text", text: message }] 
 
 const actionSchema = z.discriminatedUnion("type", [
   z.object({
-    type: z.literal("build"), tower: z.enum(TOWER_TYPES as [string, ...string[]]), x: z.number().int(), y: z.number().int(),
+    type: z.literal("build"), tower: z.enum([...TOWER_TYPES, ...Object.keys(towerAliases)] as [string, ...string[]]), x: z.number().int(), y: z.number().int(),
     targeting: z.enum(TARGETINGS as [string, ...string[]]).optional().describe("Defaults to first."),
   }),
   z.object({ type: z.literal("upgrade"), id: z.number().int().describe("Tower id."), spec: z.enum(["a", "b"]).optional().describe("Required only when upgrading a level 3 tower.") }),
   z.object({ type: z.literal("sell"), id: z.number().int() }),
   z.object({ type: z.literal("target"), id: z.number().int(), mode: z.enum(TARGETINGS as [string, ...string[]]) }),
-  z.object({ type: z.literal("send"), unit: z.enum(UNIT_TYPES as [string, ...string[]]), orders: z.number().int().min(1).optional().describe("Number of orders, default 1.") }),
+  z.object({ type: z.literal("send"), unit: z.enum([...UNIT_TYPES, ...Object.keys(unitAliases)] as [string, ...string[]]), orders: z.number().int().min(1).optional().describe("Number of orders, default 1.") }),
 ]);
 
 function clock(m: LiveMatch) {
@@ -89,7 +90,7 @@ export function buildMcpServer(user: User): McpServer {
     title: "Rules handbook",
     description: "The complete rules: towers, units, sends, economy, combat maths and scaling. Read once per session before playing.",
     annotations: { readOnlyHint: true },
-  }, async () => ({ content: [{ type: "text", text: rulesHandbook() }] }));
+  }, async () => ({ content: [{ type: "text", text: rulesHandbook(activeMatch(user.id)?.state.map.rulesVersion) }] }));
 
   server.registerTool("get_profile", {
     title: "Your profile", description: "Your rating, rank and record.", annotations: { readOnlyHint: true },
@@ -259,7 +260,7 @@ export function buildMcpServer(user: User): McpServer {
   }, async () => ok(leaderboard(25).map((u, i) => ({ place: i + 1, handle: u.handle, rating: Math.round(u.rating), rank: rankFor(u.rating).label, games: u.games, houseBot: u.bot_level !== null }))));
 
   server.registerResource("rules", "towerdefender://rules", { title: "Rules handbook", mimeType: "text/markdown" }, async (uri) => ({
-    contents: [{ uri: uri.href, mimeType: "text/markdown", text: rulesHandbook() }],
+    contents: [{ uri: uri.href, mimeType: "text/markdown", text: rulesHandbook(activeMatch(user.id)?.state.map.rulesVersion) }],
   }));
 
   server.registerPrompt("play", {

@@ -23,7 +23,7 @@ async function connect(handle: string) {
   return { handle, client, call };
 }
 
-/** A deliberately simple scripted player: nailguns and mortars on the best cells, a few scuttlers each round. */
+/** A deliberately simple scripted player: gatlings and cannons on the best cells, a few kobolds each round. */
 async function play(agent: Awaited<ReturnType<typeof connect>>, aggressive: boolean) {
   const start = await agent.call("find_match", { mode: "ranked" });
   let state = start.data;
@@ -37,14 +37,14 @@ async function play(agent: Awaited<ReturnType<typeof connect>>, aggressive: bool
     const actions: Record<string, unknown>[] = [];
     let gold = state.you.gold;
     if (aggressive && state.round > 1) {
-      actions.push({ type: "send", unit: "scuttler", orders: 2 });
+      actions.push({ type: "send", unit: "kobold", orders: 2 });
       gold -= 40;
     }
-    const air = Object.keys(state.incomingWaves[0].units).some((u) => u === "drone" || u === "gunship");
+    const air = Object.keys(state.incomingWaves[0].units).some((u) => u === "imp" || u === "wyvern");
     while (gold >= 70 && used < cells.length) {
-      const tower = air && used % 2 === 0 ? "flak" : used % 3 === 1 ? "mortar" : used % 5 === 4 ? "harpoon" : "nailgun";
+      const tower = air && used % 2 === 0 ? "flak" : used % 3 === 1 ? "cannon" : used % 5 === 4 ? "ballista" : "gatling";
       actions.push({ type: "build", tower, x: cells[used].x, y: cells[used].y });
-      gold -= tower === "mortar" ? 70 : tower === "harpoon" ? 80 : tower === "flak" ? 50 : 40;
+      gold -= tower === "cannon" ? 70 : tower === "ballista" ? 80 : tower === "flak" ? 50 : 40;
       used++;
     }
     let res = await agent.call("take_turn", { actions });

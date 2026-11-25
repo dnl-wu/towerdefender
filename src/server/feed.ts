@@ -3,7 +3,7 @@
 // their own lane plus their agent's fog-of-war intel, and everyone else sees
 // public facts. Anything a viewer can load, an agent can load too, so these
 // rules are what keeps the opponent's board, gold and income hidden.
-import type { Action } from "../engine/duel.ts";
+import { readMatchLog } from "../engine/match-log.ts";
 import type { Feed, FeedPlayer, MatchSummary, MatchView } from "../viewer/feed.ts";
 import { userById } from "./accounts.ts";
 import { liveMatch, matchRow, rebuild, recentMatches, type MatchRow } from "./arena.ts";
@@ -38,9 +38,10 @@ export function matchView(id: string, viewerId?: number): MatchView | null {
   const row = matchRow(id);
   if (!row) return null;
   const players: [FeedPlayer, FeedPlayer] = [player(row, 0), player(row, 1)];
-  const log = (JSON.parse(row.log) as [Action[], Action[]][]).slice(0, row.resolved_rounds);
+  const { rulesVersion, rounds } = readMatchLog(row.log);
+  const log = rounds.slice(0, row.resolved_rounds);
   const base = {
-    id: row.id, seed: row.seed, mode: row.mode, status: row.status, resolvedRounds: row.resolved_rounds,
+    id: row.id, seed: row.seed, rulesVersion, mode: row.mode, status: row.status, resolvedRounds: row.resolved_rounds,
     winner: row.winner === null ? null : row.winner === "draw" ? "draw" as const : (Number(row.winner) as 0 | 1),
     endReason: row.end_reason, createdAt: row.created_at, finishedAt: row.finished_at, players,
   };

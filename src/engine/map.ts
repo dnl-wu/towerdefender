@@ -1,3 +1,4 @@
+import { CURRENT_RULES, type RulesVersion } from "./match-log.ts";
 import { Rng, hashSeed } from "./rng.ts";
 
 export const MAP_W = 12;
@@ -8,6 +9,7 @@ export type Cell = [number, number];
 export type Tile = "." | "#" | "S" | "C" | "x" | "^" | "*";
 
 export interface GameMap {
+  rulesVersion: RulesVersion;
   w: number;
   h: number;
   /** Ordered cells from spawn to core. Consecutive cells are always adjacent. */
@@ -16,7 +18,7 @@ export interface GameMap {
   tiles: Tile[][];
 }
 
-export function generateMap(seed: number): GameMap {
+export function generateMap(seed: number, rulesVersion = CURRENT_RULES): GameMap {
   const rng = new Rng(hashSeed("map", seed));
   const w = MAP_W;
   const h = MAP_H;
@@ -67,7 +69,7 @@ export function generateMap(seed: number): GameMap {
   take(open.filter((c) => nearPath(c, 1)), 7, "x");
   take(open.filter((c) => !nearPath(c, 1)), 5, "x");
 
-  return { w, h, path, tiles };
+  return { w, h, path, tiles, rulesVersion };
 }
 
 export function isBuildable(map: GameMap, x: number, y: number): boolean {
@@ -111,8 +113,11 @@ export function airCoverage(map: GameMap, x: number, y: number, range: number): 
   return (inside / (steps + 1)) * len;
 }
 
+/** One letter per tower on the text boards agents read. None clash with a tile letter. */
+export const TOWER_GLYPHS: Record<string, string> = { gatling: "G", cannon: "O", ballista: "B", tesla: "T", flak: "K", frost: "F", beacon: "E", laser: "L" };
+
 export function renderAscii(map: GameMap, towers: { x: number; y: number; type: string }[] = []): string {
-  const glyph: Record<string, string> = { nailgun: "N", mortar: "M", harpoon: "H", coil: "A", flak: "K", frost: "F", relay: "R" };
+  const glyph: Record<string, string> = TOWER_GLYPHS;
   const rows = map.tiles.map((r) => r.slice() as string[]);
   for (const t of towers) rows[t.y][t.x] = glyph[t.type] ?? "T";
   const header = "    " + Array.from({ length: map.w }, (_, i) => (i % 10).toString()).join(" ");

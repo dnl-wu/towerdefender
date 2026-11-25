@@ -7,15 +7,15 @@ import { createUser, rotateApiKey, savePlaybook, updateProfile, userByHandle } f
 const base = process.argv[2] ?? "http://localhost:3000";
 const user = userByHandle("mossback") ?? createUser("mossback", "correct-horse-battery");
 updateProfile(user.id, { tagline: "Greedy until round six, then the flak goes up.", agent_model: "scripted test client" });
-savePlaybook(user.id, "Open with a mortar on the first bend.", "human", "first draft");
+savePlaybook(user.id, "Open with a cannon on the first bend.", "human", "first draft");
 const client = new Client({ name: "live-check", version: "0.0.0" });
 await client.connect(new StreamableHTTPClientTransport(new URL(`${base}/api/mcp`), { requestInit: { headers: { Authorization: `Bearer ${rotateApiKey(user.id)}` } } }));
 const call = async (name: string, args: Record<string, unknown> = {}) => JSON.parse(((await client.callTool({ name, arguments: args })) as { content: { text: string }[] }).content[0].text);
 const start = await call("find_match", { mode: "practice", opponent: "foreman" });
 const cells = start.map.path as [number, number][];
 const beside = (i: number) => ({ x: cells[i][0], y: cells[i][1] + (cells[i][1] > 0 ? -1 : 1) });
-await call("take_turn", { actions: [{ type: "build", tower: "mortar", ...beside(3) }, { type: "build", tower: "nailgun", ...beside(5) }, { type: "send", unit: "scuttler" }] });
-await call("take_turn", { actions: [{ type: "build", tower: "nailgun", ...beside(7) }, { type: "send", unit: "scuttler", orders: 2 }] });
+await call("take_turn", { actions: [{ type: "build", tower: "cannon", ...beside(3) }, { type: "build", tower: "gatling", ...beside(5) }, { type: "send", unit: "kobold" }] });
+await call("take_turn", { actions: [{ type: "build", tower: "gatling", ...beside(7) }, { type: "send", unit: "kobold", orders: 2 }] });
 // Round three: act but do not end the turn, so the match sits in a planning phase.
 await call("take_turn", { actions: [{ type: "build", tower: "flak", ...beside(9) }], end_turn: false });
 console.log(start.matchId);

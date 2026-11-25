@@ -5,7 +5,7 @@ import { TOWERS, UNITS, type TowerType, type UnitType } from "./data.ts";
 import type { DuelState, RoundRecord, Winner } from "./duel.ts";
 import { waveArchetype } from "./waves.ts";
 
-const IRREGULAR: Record<string, string> = { life: "lives", colossus: "colossi", Colossus: "Colossi" };
+const IRREGULAR: Record<string, string> = { life: "lives" };
 const many = (word: string) => IRREGULAR[word] ?? `${word}s`;
 const plural = (n: number, word: string) => `${n} ${n === 1 ? word : many(word)}`;
 const unitCount = (n: number, u: UnitType) => plural(n, UNITS[u].name.toLowerCase());
@@ -24,8 +24,8 @@ export function roundReport(state: DuelState, player: 0 | 1, rec: RoundRecord) {
     .sort((a, b) => b.damage - a.damage);
 
   const notes: string[] = [];
-  const leakedAir = (["drone", "gunship"] as UnitType[]).reduce((s, u) => s + (me.battle.leaked[u] ?? 0), 0);
-  const hasAntiAir = lane.towers.some((t) => TOWERS[t.type].targets !== "ground" && t.type !== "frost" && t.type !== "relay");
+  const leakedAir = (["imp", "wyvern"] as UnitType[]).reduce((s, u) => s + (me.battle.leaked[u] ?? 0), 0);
+  const hasAntiAir = lane.towers.some((t) => TOWERS[t.type].targets !== "ground" && t.type !== "frost" && t.type !== "beacon");
   if (leakedAir > 0 && !hasAntiAir) notes.push(`${plural(leakedAir, "flyer")} got through and you have no tower that can hit air.`);
   for (const u of Object.keys(me.battle.leaked) as UnitType[]) {
     const n = me.battle.leaked[u] ?? 0;
@@ -36,7 +36,7 @@ export function roundReport(state: DuelState, player: 0 | 1, rec: RoundRecord) {
     const depth = me.battle.killDepth[u] ?? 0;
     if (depth >= 0.85 && !(me.battle.leaked[u] ?? 0)) notes.push(`${many(UNITS[u].name)} died ${Math.round(depth * 100)}% of the way to your core on average. That is a narrow margin.`);
   }
-  const idle = towers.filter((t) => t.damage === 0 && t.type !== "relay" && t.type !== "frost" && t.type !== "sold");
+  const idle = towers.filter((t) => t.damage === 0 && t.type !== "beacon" && t.type !== "frost" && t.type !== "sold");
   if (idle.length) notes.push(`Dealt no damage this round: ${idle.map((t) => `${TOWERS[t.type as TowerType].name} #${t.id}`).join(", ")}.`);
   for (const t of towers) {
     if (t.type !== "sold" && t.damage > 0 && t.overkill > t.damage * 0.6) notes.push(`${TOWERS[t.type as TowerType].name} #${t.id} wasted ${t.overkill} damage as overkill. A different targeting mode may fit it better.`);
@@ -78,14 +78,14 @@ export function roundReport(state: DuelState, player: 0 | 1, rec: RoundRecord) {
 
 function counterHint(u: UnitType): string {
   switch (u) {
-    case "scuttler": return "splash (Mortar) or chaining (Arc Coil).";
-    case "runner": return "more damage early on the path, or a Frost Vent to hold them in range.";
-    case "goblin": return "a Sentinel, which always shoots the weakest enemy, or any tower set to target weak. Goblins hide behind tougher raiders.";
-    case "shellback": return "Arc Coil breaks shields at double damage.";
-    case "drone": return "Flak on the flight line.";
-    case "gunship": return "Flak (Seeker) or Harpoon; nailguns barely scratch its armour.";
-    case "hulk": return "Harpoon ignores armour.";
-    default: return "stacked Harpoons with 'strong' targeting, and slows to keep it in range.";
+    case "kobold": return "splash (Cannon) or chaining (Tesla Coil).";
+    case "hellhound": return "more damage early on the path, or a Frost Vent to hold them in range.";
+    case "goblin": return "a Laser Sentry, which always shoots the weakest enemy, or any tower set to target weak. Goblins hide behind tougher raiders.";
+    case "orc": return "Tesla Coil breaks shields at double damage.";
+    case "imp": return "Flak on the flight line.";
+    case "wyvern": return "Flak (Seeker) or Ballista; gatlings barely scratch its armour.";
+    case "ogre": return "Ballista ignores armour.";
+    default: return "stacked Ballistas with 'strong' targeting, and slows to keep it in range.";
   }
 }
 
@@ -188,18 +188,18 @@ export function debrief(state: DuelState, player: 0 | 1): Debrief {
     if (lostToSends > lostTotal * 0.5) findings.push(`${lostToSends} of those lives went to units the opponent sent, not the neutral waves. Scout their send pattern and keep a margin against it.`);
     else if (lostToSends === 0) findings.push("Every life you lost went to the neutral waves, which are forecast three rounds ahead.");
   }
-  const firstAir = state.history.find((r) => (r.sides[player].battle.spawned.drone ?? 0) + (r.sides[player].battle.spawned.gunship ?? 0) > 0);
-  const airLeak = state.history.reduce((s, r) => s + (r.sides[player].battle.leaked.drone ?? 0) + (r.sides[player].battle.leaked.gunship ?? 0) * 2, 0);
+  const firstAir = state.history.find((r) => (r.sides[player].battle.spawned.imp ?? 0) + (r.sides[player].battle.spawned.wyvern ?? 0) > 0);
+  const airLeak = state.history.reduce((s, r) => s + (r.sides[player].battle.leaked.imp ?? 0) + (r.sides[player].battle.leaked.wyvern ?? 0) * 2, 0);
   if (firstAir && airLeak >= 4) findings.push(`Flyers took ${airLeak} lives. They first appeared in round ${firstAir.round}.`);
   if (me.totals.sendGold === 0) findings.push("You never sent anything. Sends raise your income permanently; a pure defence falls behind on gold every round.");
   else if (me.totals.livesTaken === 0) findings.push(`You spent ${me.totals.sendGold} gold on sends and took no lives. They still paid for themselves as income if bought early, but none of them tested a weakness.`);
   if (me.totals.goldLost >= 40) findings.push(`Goblins stole ${me.totals.goldLost} gold from you over the match. Counter: ${counterHint("goblin")}`);
   if (me.totals.goldStolen > 0) findings.push(`Your goblins stole ${me.totals.goldStolen} gold.`);
   if (opp.income > me.income * 1.5 && state.history.length >= 6) findings.push(`The opponent finished with ${opp.income} income against your ${me.income}. They out-earned you for most of the match.`);
-  const weak = towers.filter((t) => t.gold >= 150 && t.type !== "relay" && t.type !== "frost").sort((a, b) => a.damagePerGold - b.damagePerGold)[0];
+  const weak = towers.filter((t) => t.gold >= 150 && t.type !== "beacon" && t.type !== "frost").sort((a, b) => a.damagePerGold - b.damagePerGold)[0];
   const strong = towers[0];
   if (weak && strong && weak.type !== strong.type && weak.damagePerGold < strong.damagePerGold * 0.4) {
-    findings.push(`${TOWERS[weak.type].name}s returned ${weak.damagePerGold} damage per gold against ${strong.damagePerGold} for ${TOWERS[strong.type].name}s. Check their placement and whether the waves called for them.`);
+    findings.push(`Your ${TOWERS[weak.type].name} towers returned ${weak.damagePerGold} damage per gold against ${strong.damagePerGold} for your ${TOWERS[strong.type].name} towers. Check their placement and whether the waves called for them.`);
   }
 
   const econ = (l: typeof me): SideEconomy => ({ towerGold: l.totals.towerGold, sendGold: l.totals.sendGold, scannerGold: l.totals.scannerGold, goldStolen: l.totals.goldStolen, goldLost: l.totals.goldLost, bounty: l.totals.bounty, finalIncome: l.income, livesTaken: l.totals.livesTaken });

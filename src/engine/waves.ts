@@ -15,7 +15,7 @@ export type Archetype = "swarm" | "rush" | "shield" | "air" | "armor" | "mixed" 
 
 // Seconds between spawns within a group. Tight enough that a round plays out in well under half a minute.
 const SPAWN_GAP: Record<UnitType, number> = {
-  scuttler: 0.26, runner: 0.45, goblin: 0.4, shellback: 0.8, drone: 0.5, hulk: 1.3, gunship: 1.6, colossus: 3,
+  kobold: 0.26, hellhound: 0.45, goblin: 0.4, orc: 0.8, imp: 0.5, ogre: 1.3, wyvern: 1.6, minotaur: 3,
 };
 
 interface Recipe {
@@ -25,12 +25,12 @@ interface Recipe {
 }
 
 const RECIPES: Record<Exclude<Archetype, "boss">, Recipe> = {
-  swarm: { from: 1, main: "scuttler", side: "runner" },
-  rush: { from: 2, main: "runner", side: "scuttler" },
-  shield: { from: 3, main: "shellback", side: "scuttler" },
-  air: { from: 3, main: "drone", side: "runner" },
-  armor: { from: 4, main: "hulk", side: "scuttler" },
-  mixed: { from: 5, main: "shellback", side: "drone" },
+  swarm: { from: 1, main: "kobold", side: "hellhound" },
+  rush: { from: 2, main: "hellhound", side: "kobold" },
+  shield: { from: 3, main: "orc", side: "kobold" },
+  air: { from: 3, main: "imp", side: "hellhound" },
+  armor: { from: 4, main: "ogre", side: "kobold" },
+  mixed: { from: 5, main: "orc", side: "imp" },
 };
 
 export function waveArchetype(seed: number, round: number): Archetype {
@@ -57,22 +57,22 @@ export function baseWave(seed: number, round: number): SpawnGroup[] {
 
   if (arch === "boss") {
     const bosses = 1 + Math.floor(round / 10);
-    const bossPoints = Math.min(budget * 0.6, bosses * UNITS.colossus.threat);
-    const count = Math.max(1, Math.round(bossPoints / UNITS.colossus.threat));
-    groups.push({ unit: "colossus", count, start: 2, gap: SPAWN_GAP.colossus, source: "base" });
-    budget = Math.max(6, budget - count * UNITS.colossus.threat);
-    add("scuttler", budget * 0.5, 0);
-    if (round >= 10) add("gunship", budget * 0.5, 4);
-    else add("runner", budget * 0.5, 5);
+    const bossPoints = Math.min(budget * 0.6, bosses * UNITS.minotaur.threat);
+    const count = Math.max(1, Math.round(bossPoints / UNITS.minotaur.threat));
+    groups.push({ unit: "minotaur", count, start: 2, gap: SPAWN_GAP.minotaur, source: "base" });
+    budget = Math.max(6, budget - count * UNITS.minotaur.threat);
+    add("kobold", budget * 0.5, 0);
+    if (round >= 10) add("wyvern", budget * 0.5, 4);
+    else add("hellhound", budget * 0.5, 5);
     return groups;
   }
 
   const r = RECIPES[arch];
   // Later rounds swap light flyers and armour for their heavy versions.
-  const main: UnitType = arch === "air" && round >= 11 ? "gunship" : r.main;
+  const main: UnitType = arch === "air" && round >= 11 ? "wyvern" : r.main;
   const used = add(main, budget * 0.65, 0);
   add(r.side, budget * 0.35, Math.min(used * 0.5, 6));
-  if (arch === "mixed" && round >= 8) add("hulk", budget * 0.25, 3);
+  if (arch === "mixed" && round >= 8) add("ogre", budget * 0.25, 3);
   return groups;
 }
 

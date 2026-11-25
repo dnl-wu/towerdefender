@@ -17,7 +17,7 @@ export const C = {
   ceramic: "#E6DCC8", ceramic2: "#CFC3AB", brass: "#B99A5E", brass2: "#8f7545", copper: "#B87245", bronze: "#5b5346", gun: "#45423f", iron: "#6b655d",
   jade: "#7DC4B2", honey: "#E8B86D", ember: "#E0704F", ice: "#B4D4D8", white: "#FFF6E6",
   // tower accents
-  rust: "#C4763F", ochre: "#D1A04A", ink: "#48708A", amethyst: "#8C72B8", sentry: "#5E9C94", lichen: "#8FA65A", frost: "#A9C9CF",
+  rust: "#C4763F", ochre: "#D1A04A", ink: "#48708A", amethyst: "#8C72B8", sentry: "#5E9C94", laser: "#ff4d6d", lichen: "#8FA65A", frost: "#A9C9CF",
   // raiders
   goblin: "#6f8a3c", umber: "#3d3530", umber2: "#2b2522", clay: "#a8553f", basalt: "#4a433f", glass: "#B8D8DC",
   // scenery

@@ -17,7 +17,9 @@ export type Hit = { kind: "tower"; id: number } | { kind: "gate" } | { kind: "co
 interface TowerView { ang: number; aim: number; aimedAt: number; kick: number; glowAt: number }
 interface Bit { x: number; y: number; z: number; vx: number; vy: number; vz: number; c: string; life: number; size: number; glow: boolean }
 interface Ring { x: number; y: number; z: number; r: number; c: string; life: number; max: number; puff?: boolean }
-interface Shot { pts: [number, number, number][]; c: string; life: number; max: number; arc: boolean; jagged: boolean; wide: number }
+interface Shot { pts: [number, number, number][]; c: string; life: number; max: number; jagged: boolean; wide: number; core?: string }
+/** Something you can watch fly: a Cannon's cannonball on its arc, or a Ballista's bolt. */
+interface Missile { kind: "ball" | "bolt"; from: [number, number, number]; to: [number, number, number]; t: number; dur: number; splash: number }
 
 export class Scene {
   readonly width: number;
@@ -36,6 +38,7 @@ export class Scene {
   private bits: Bit[] = [];
   private rings: Ring[] = [];
   private shots: Shot[] = [];
+  private missiles: Missile[] = [];
   private hp = new Map<number, number>();
   private flash = new Map<number, number>();
   private facing = new Map<number, number>();
@@ -103,7 +106,15 @@ export class Scene {
     g.fillText(`@${feed.players[side].handle}`, 0, 0, depth - 12);
     g.restore();
   }
-  private ellipse(wx: number, wy: number, wz: number, r: number): void { const [cx, cy] = this.at(wx, wy, wz); this.g.beginPath(); this.g.ellipse(cx, cy, r * this.s * Math.SQRT2, r * this.s * Math.SQRT1_2, 0, 0, Math.PI * 2); }
+  private ellipse(wx: number, wy: number, wz: number, r: number, inner = 0): void {
+    const [cx, cy] = this.at(wx, wy, wz);
+    this.g.beginPath();
+    this.g.ellipse(cx, cy, r * this.s * Math.SQRT2, r * this.s * Math.SQRT1_2, 0, 0, Math.PI * 2);
+    if (inner > 0) {
+      this.g.moveTo(cx + inner * this.s * Math.SQRT2, cy);
+      this.g.ellipse(cx, cy, inner * this.s * Math.SQRT2, inner * this.s * Math.SQRT1_2, 0, 0, Math.PI * 2);
+    }
+  }
   private pool(wx: number, wy: number, wz: number, r: number, colour: string, alpha: number, blend: GlobalCompositeOperation = "source-over"): void {
     const g = this.g, [cx, cy] = this.at(wx, wy, wz), rx = Math.max(0.01, r * this.s * Math.SQRT2);
     g.save(); g.translate(cx, cy); g.scale(1, 0.5); g.globalCompositeOperation = blend;
@@ -149,15 +160,20 @@ export class Scene {
       const from: [number, number, number] = [cx + Math.cos(v.ang) * len, cy + Math.sin(v.ang) * len, this.towerZ(t) + (def.headZ ?? 0) + mz];
       const air = fx.hits[0]?.flying ?? false, tz = air ? ALT + 2 : 2;
       const to: [number, number, number] = [fx.x * T + 4, fx.y * T + 4, tz];
-      if (t.type === "mortar") {
-        this.shots.push({ pts: [from, to], c: C.ochre, life: 0.2, max: 0.2, arc: true, jagged: false, wide: 3 });
-        this.burst(to[0], to[1], 1, [C.ochre, C.white, C.lime], 6, 0.9);
-        this.rings.push({ x: to[0], y: to[1], z: 0, r: (effectiveStats(t, pb.map, pb.towers).splash ?? 1.2) * T, c: C.honey, life: 0.35, max: 0.35 });
-      } else if (t.type === "coil") {
-        this.shots.push({ pts: [from, ...fx.hits.map((h): [number, number, number] => [h.x * T + 4, h.y * T + 4, h.flying ? ALT + 2 : 2])], c: C.amethyst, life: 0.12, max: 0.12, arc: false, jagged: true, wide: 5 });
+      if (t.type === "cannon") {
+        // A cannonball you can follow: it leaves in a puff of smoke and bursts where it lands.
+        this.missiles.push({ kind: "ball", from, to: [to[0], to[1], 0], t: 0, dur: 0.55, splash: (effectiveStats(t, pb.map, pb.towers).splash ?? 1.2) * T });
+        this.rings.push({ x: from[0], y: from[1], z: from[2], r: 2.5, c: "#d8d0c0", life: 0.35, max: 0.35, puff: true });
+      } else if (t.type === "ballista") {
+        this.missiles.push({ kind: "bolt", from, to, t: 0, dur: 0.16, splash: 0 });
+      } else if (t.type === "laser") {
+        // A thin red beam with a hot white core, and a scorch where it lands.
+        this.shots.push({ pts: [from, to], c: C.laser, life: 0.14, max: 0.14, jagged: false, wide: 6, core: "#ffe0e4" });
+        this.rings.push({ x: to[0], y: to[1], z: tz, r: 2, c: C.laser, life: 0.2, max: 0.2, puff: true });
+      } else if (t.type === "tesla") {
+        this.shots.push({ pts: [from, ...fx.hits.map((h): [number, number, number] => [h.x * T + 4, h.y * T + 4, h.flying ? ALT + 2 : 2])], c: C.amethyst, life: 0.12, max: 0.12, jagged: true, wide: 5 });
       } else {
-        const heavy = t.type === "harpoon";
-        this.shots.push({ pts: [from, to], c: t.type === "flak" ? C.lichen : heavy ? C.ink : C.honey, life: heavy ? 0.22 : 0.1, max: heavy ? 0.22 : 0.1, arc: false, jagged: false, wide: heavy ? 5 : 3 });
+        this.shots.push({ pts: [from, to], c: t.type === "flak" ? C.lichen : C.honey, life: 0.08, max: 0.08, jagged: false, wide: t.type === "flak" ? 3 : 2 });
         if (t.type === "flak") this.rings.push({ x: to[0], y: to[1], z: tz, r: 3, c: C.white, life: 0.25, max: 0.25, puff: true });
       }
     } else if (fx.kind === "pulse") {
@@ -165,7 +181,7 @@ export class Scene {
       this.view(t).kick = 1;
       this.rings.push({ x: cx, y: cy, z: this.towerZ(t) - 1, r: effectiveStats(t, pb.map, pb.towers).range * T, c: C.frost, life: 0.6, max: 0.6 });
     } else if (fx.kind === "die") {
-      const air = UNITS[fx.unit].flying, z = air ? ALT : 2, big = fx.unit === "hulk" || fx.unit === "colossus" || fx.unit === "gunship";
+      const air = UNITS[fx.unit].flying, z = air ? ALT : 2, big = fx.unit === "ogre" || fx.unit === "minotaur" || fx.unit === "wyvern";
       const [x, y] = [fx.x * T + 4, fx.y * T + 4];
       this.burst(x, y, z, [C.umber, C.iron, C.ember], big ? 20 : 5, big ? 1.3 : 1);
       // The bounty, as a coin.
@@ -211,6 +227,17 @@ export class Scene {
     this.rings = this.rings.filter((r) => r.life > 0);
     for (const sh of this.shots) sh.life -= dt;
     this.shots = this.shots.filter((sh) => sh.life > 0);
+    for (const m of this.missiles) {
+      m.t += dt;
+      if (m.t < m.dur) continue;
+      const [x, y, z] = m.to;
+      if (m.kind === "ball") {
+        this.burst(x, y, 1, [C.ochre, C.white, "#3a3532", C.lime], 10, 1);
+        this.rings.push({ x, y, z: 0, r: m.splash, c: C.honey, life: 0.4, max: 0.4 });
+        this.rings.push({ x, y, z: 2, r: 3.5, c: "#cfc6b6", life: 0.5, max: 0.5, puff: true });
+      } else this.burst(x, y, z, [C.iron, C.white], 4, 0.6);
+    }
+    this.missiles = this.missiles.filter((m) => m.t < m.dur);
 
     const towers = pb.towers.filter((t) => { const at = pb.reveal.get(t.id); return at === undefined || clock >= at; });
     const live = new Set(pb.towers.map((t) => t.id));
@@ -248,21 +275,25 @@ export class Scene {
     const focus = pb.towers.find((t) => t.id === (this.selected ?? (this.hover?.kind === "tower" ? this.hover.id : -1)));
     if (focus) this.onSlab(() => {
       const [cx, cy] = this.mid(focus.x, focus.y), st = effectiveStats(focus, map, pb.towers), strong = focus.id === this.selected;
-      if (focus.type === "relay") {
-        for (const o of pb.towers) if (o !== focus && Math.abs(o.x - focus.x) <= 1 && Math.abs(o.y - focus.y) <= 1) { this.tile(o.x, o.y, this.towerZ(o) - 0, 0); g.fillStyle = rgba(C.jade, 0.3); g.fill(); }
+      if (focus.type === "beacon") {
+        for (const o of pb.towers) if (o.type !== "beacon" && Math.abs(o.x - focus.x) <= 1 && Math.abs(o.y - focus.y) <= 1) { this.tile(o.x, o.y, this.towerZ(o), 0); g.fillStyle = rgba(C.jade, 0.3); g.fill(); }
         return;
       }
-      const R = st.range * T;
-      this.ellipse(cx, cy, 1, R); g.fillStyle = rgba(C.jade, strong ? 0.1 : 0.06); g.fill();
+      const R = st.range * T, minRange = st.minRange ?? 0;
+      this.ellipse(cx, cy, 1, R, minRange * T); g.fillStyle = rgba(C.jade, strong ? 0.1 : 0.06); g.fill("evenodd");
       // Road cells in reach, except for towers that only fire at flyers, which never use the road.
-      if (st.targets !== "air") for (const [px, py] of map.path) if ((px - focus.x) ** 2 + (py - focus.y) ** 2 <= st.range ** 2) { this.tile(px, py, 0, 0.5); g.fillStyle = rgba(C.jade, strong ? 0.26 : 0.15); g.fill(); }
+      if (st.targets !== "air") for (const [px, py] of map.path) {
+        const distance = Math.hypot(px - focus.x, py - focus.y);
+        if (distance < minRange || distance > st.range) continue;
+        this.tile(px, py, 0, 0.5); g.fillStyle = rgba(C.jade, strong ? 0.26 : 0.15); g.fill();
+      }
       if (st.targets !== "ground") { const a = this.at(...this.mid(gx, gy), 1), b = this.at(...this.mid(kx, ky), 1); g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.setLineDash([2 * dpr, 6 * dpr]); g.lineWidth = 2 * dpr; g.strokeStyle = rgba(C.jade, strong ? 0.55 : 0.3); g.stroke(); g.setLineDash([]); }
-      this.ellipse(cx, cy, 1, R); g.setLineDash([6 * dpr, 5 * dpr]); g.lineDashOffset = this.reduced ? 0 : -clock * 8 * dpr; g.lineWidth = 1.5 * dpr; g.strokeStyle = rgba(C.jade, strong ? 0.9 : 0.5); g.stroke(); g.setLineDash([]);
+      this.ellipse(cx, cy, 1, R, minRange * T); g.setLineDash([6 * dpr, 5 * dpr]); g.lineDashOffset = this.reduced ? 0 : -clock * 8 * dpr; g.lineWidth = 1.5 * dpr; g.strokeStyle = rgba(C.jade, strong ? 0.9 : 0.5); g.stroke(); g.setLineDash([]);
     });
     if (this.hover && this.hover.kind !== "tower") { const [hx, hy] = this.hover.kind === "gate" ? [gx, gy] : [kx, ky]; this.tile(hx, hy, 0, 0.5); g.fillStyle = rgba(this.hover.kind === "gate" ? UI.terracotta : C.jade, 0.22); g.fill(); }
 
-    // A relay feeds its neighbours: light travelling along the ground between them.
-    for (const t of towers) if (t.type === "relay") for (const o of towers) if (o !== t && Math.abs(o.x - t.x) <= 1 && Math.abs(o.y - t.y) <= 1) {
+    // A beacon feeds its neighbours: light travelling along the ground between them.
+    for (const t of towers) if (t.type === "beacon") for (const o of towers) if (o.type !== "beacon" && Math.abs(o.x - t.x) <= 1 && Math.abs(o.y - t.y) <= 1) {
       const a = this.at(...this.mid(t.x, t.y), this.towerZ(t)), b = this.at(...this.mid(o.x, o.y), this.towerZ(o));
       g.save(); g.lineCap = "round"; g.beginPath(); g.moveTo(...a); g.lineTo(...b); g.strokeStyle = rgba(C.jade, 0.28); g.lineWidth = 2 * dpr; g.stroke();
       g.setLineDash([5 * dpr, 22 * dpr]); g.lineDashOffset = this.reduced ? 0 : -clock * 22 * dpr; g.strokeStyle = "rgba(230,250,244,.9)"; g.stroke(); g.restore();
@@ -305,12 +336,12 @@ export class Scene {
       const z = this.towerZ(t) + drop;
       this.sprite(art.base[Math.min(4, t.level) - 1][key], t.x * T, t.y * T, z);
       if (art.head) { const f = (((Math.round((v.ang / (Math.PI * 2)) * HEAD_FRAMES) % HEAD_FRAMES) + HEAD_FRAMES) % HEAD_FRAMES), back = def.spin ? 0 : v.kick * 0.9; this.sprite(art.head[f][key], t.x * T - Math.cos(v.ang) * back, t.y * T - Math.sin(v.ang) * back, z + (def.headZ ?? 0)); }
-      if (t.type === "coil") {
+      if (t.type === "tesla") {
         const lift = z + 10.5 + (this.reduced ? 0 : Math.sin(clock * 2 + t.x) * 0.7);
         this.pool(cx, cy, lift + 1, 3 + v.kick, C.amethyst, (0.3 + v.kick * 0.3) * L.glow, "lighter");
         this.sprite(this.art.coilGem[this.reduced ? 0 : Math.floor(clock * 5) % 8], cx - 1.5, cy - 1.5, lift);
       }
-      if (t.type === "relay" && (this.reduced || Math.sin(clock * 3) > 0)) this.pool(cx, cy, z + 11.5, 1.6, C.jade, 0.7 * L.glow, "lighter");
+      if (t.type === "beacon" && (this.reduced || Math.sin(clock * 3) > 0)) this.pool(cx, cy, z + 11.5, 1.6, C.jade, 0.7 * L.glow, "lighter");
       if (since >= 0 && since < 1) this.pool(cx, cy, z + 3, 8 * (0.5 + since), C.jade, (1 - since) * 0.75, "lighter");
     } });
     for (const { e, x, y } of foes) {
@@ -322,8 +353,8 @@ export class Scene {
       if (was !== undefined && total < was) this.flash.set(e.id, 0.09);
       this.hp.set(e.id, total);
       const fl = Math.max(0, (this.flash.get(e.id) ?? 0) - dt); this.flash.set(e.id, fl);
-      const sp = frames[frames.length > 1 && !this.reduced ? Math.floor(clock * 14) % frames.length : 0][this.facing.get(e.id) ?? 0];
-      const heavy = e.unit === "hulk" || e.unit === "colossus";
+      const sp = frames[frames.length > 1 && !this.reduced ? Math.floor(clock * 6 + e.id) % frames.length : 0][this.facing.get(e.id) ?? 0];
+      const heavy = e.unit === "ogre" || e.unit === "minotaur";
       const lift = air ? ALT + (this.reduced ? 0 : Math.sin(clock * 4 + e.id) * 1.2) : this.reduced ? 0 : Math.abs(Math.sin(clock * 9 + e.id * 1.3)) * (heavy ? 0.5 : 1.2);
       items.push({ k: x + y + 0.3, f: () => {
         const wx = x * T + 4 - u.pivot[0], wy = y * T + 4 - u.pivot[1];
@@ -356,13 +387,30 @@ export class Scene {
         g.beginPath(); g.moveTo(...pts[0]);
         for (let i = 1; i < pts.length; i++) {
           if (sh.jagged) for (let j = 1; j < 4; j++) g.lineTo(pts[i - 1][0] + ((pts[i][0] - pts[i - 1][0]) * j) / 4 + (Math.random() - 0.5) * 10 * dpr, pts[i - 1][1] + ((pts[i][1] - pts[i - 1][1]) * j) / 4 + (Math.random() - 0.5) * 10 * dpr);
-          if (sh.arc) g.quadraticCurveTo((pts[i - 1][0] + pts[i][0]) / 2, Math.min(pts[i - 1][1], pts[i][1]) - 52 * dpr, pts[i][0], pts[i][1]); else g.lineTo(...pts[i]);
+          g.lineTo(...pts[i]);
         }
       };
       path(); g.strokeStyle = rgba(sh.c, 0.45 * p); g.lineWidth = sh.wide * dpr; g.stroke();
-      path(); g.strokeStyle = `rgba(255,246,230,${0.95 * p})`; g.lineWidth = (sh.wide > 3 ? 2 : 1.2) * dpr; g.stroke();
+      g.strokeStyle = sh.core ? rgba(sh.core, 0.95 * p) : `rgba(255,246,230,${0.95 * p})`; g.lineWidth = (sh.wide > 3 ? 2 : 1.2) * dpr; g.stroke();
       g.fillStyle = `rgba(255,246,230,${p})`; g.beginPath(); g.arc(pts[0][0], pts[0][1], 3 * dpr * p + dpr, 0, 7); g.fill();
       const end = pts[pts.length - 1]; g.beginPath(); g.arc(end[0], end[1], 2.5 * dpr, 0, 7); g.fill();
+    }
+    // Cannonballs: a dark ball on a high arc with its shadow running along the ground. Bolts: a steel dart and its streak.
+    for (const m of this.missiles) {
+      const p = Math.min(1, m.t / m.dur), x = m.from[0] + (m.to[0] - m.from[0]) * p, y = m.from[1] + (m.to[1] - m.from[1]) * p;
+      if (m.kind === "ball") {
+        const z = m.from[2] + (m.to[2] - m.from[2]) * p + Math.sin(p * Math.PI) * 18;
+        this.pool(x, y, 0, 1.6, this.lighting.shadow.colour, 0.45);
+        const [bx, by] = this.at(x, y, z), radius = Math.max(2 * dpr, 1.25 * this.s);
+        g.beginPath(); g.arc(bx, by, radius, 0, Math.PI * 2); g.fillStyle = C.umber2; g.fill();
+        g.beginPath(); g.arc(bx - radius / 3, by - radius / 3, radius / 3, 0, Math.PI * 2); g.fillStyle = C.lime; g.fill();
+      } else {
+        const z = m.from[2] + (m.to[2] - m.from[2]) * p, back = Math.max(0, p - 0.35);
+        const tail = this.at(m.from[0] + (m.to[0] - m.from[0]) * back, m.from[1] + (m.to[1] - m.from[1]) * back, m.from[2] + (m.to[2] - m.from[2]) * back), head = this.at(x, y, z);
+        g.beginPath(); g.moveTo(...tail); g.lineTo(...head); g.strokeStyle = "rgba(255,246,230,.35)"; g.lineWidth = 4 * dpr; g.stroke();
+        g.beginPath(); g.moveTo(...tail); g.lineTo(...head); g.strokeStyle = C.iron; g.lineWidth = 2 * dpr; g.stroke();
+        g.fillStyle = "#fff6e6"; g.beginPath(); g.arc(head[0], head[1], 1.8 * dpr, 0, 7); g.fill();
+      }
     }
     for (const r of this.rings) {
       const p = 1 - r.life / r.max;

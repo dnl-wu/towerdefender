@@ -78,7 +78,7 @@ export class Playback {
 
   /** Begin again from round one. A live match skips silently to its latest resolved round. */
   restart(): void {
-    this.duel = createDuel(this.feed.seed);
+    this.duel = createDuel(this.feed.seed, this.feed.rulesVersion);
     this.txns = [[], []];
     this.towerNotes = [new Map(), new Map()];
     this.reveal.clear();

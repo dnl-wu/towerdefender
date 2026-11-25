@@ -4,6 +4,7 @@
 //   the opponent only what fog of war lets your agent know.
 // - "summary": a live match, for anyone else. Public facts only.
 // A live match's log never includes the round being planned.
+import type { RulesVersion } from "../engine/match-log.ts";
 import type { Action, SeenTower } from "../engine/duel.ts";
 
 export interface FeedPlayer {
@@ -33,6 +34,7 @@ export interface Feed {
   view: "full" | "lane";
   id: string;
   seed: number;
+  rulesVersion?: RulesVersion;
   mode: "ranked" | "practice";
   status: "active" | "finished";
   resolvedRounds: number;

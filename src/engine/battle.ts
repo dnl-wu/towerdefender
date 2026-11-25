@@ -2,6 +2,7 @@ import {
   RULES, lootFor, TOWERS, UNITS, armorAgainst, hpScale, shieldMultiplier,
   type DamageType, type Spec, type Targeting, type TowerStats, type TowerType, type UnitType,
 } from "./data.ts";
+import { CURRENT_RULES, towerStats, unitVitals } from "./match-log.ts";
 import { flightLength, type GameMap } from "./map.ts";
 import type { SpawnGroup } from "./waves.ts";
 
@@ -26,25 +27,24 @@ export interface EffectiveStats extends TowerStats {
   targets: "ground" | "air" | "both";
 }
 
-export function baseStats(t: { type: TowerType; level: number; spec: Spec | null }): TowerStats {
-  const def = TOWERS[t.type];
-  return t.spec ? def.specs[t.spec] : def.levels[Math.min(t.level, 3) - 1];
+export function baseStats(t: { type: TowerType; level: number; spec: Spec | null }, rulesVersion = CURRENT_RULES): TowerStats {
+  return towerStats(t.type, t.level, t.spec, rulesVersion);
 }
 
-/** Stats after terrain and relay bonuses. */
+/** Stats after terrain and beacon bonuses. */
 export function effectiveStats(t: Tower, map: GameMap, towers: Tower[]): EffectiveStats {
   const def = TOWERS[t.type];
-  const s = baseStats(t);
+  const s = baseStats(t, map.rulesVersion);
   let dmg = s.dmg;
   let range = s.range;
-  if (t.type !== "relay") {
+  if (t.type !== "beacon") {
     const tile = map.tiles[t.y][t.x];
     if (tile === "^") range += RULES.highGroundRange;
     if (tile === "*") dmg *= 1 + RULES.powerTileDmg;
     let buffDmg = 0;
     let buffRange = 0;
     for (const o of towers) {
-      if (o.type !== "relay" || Math.abs(o.x - t.x) > 1 || Math.abs(o.y - t.y) > 1) continue;
+      if (o.type !== "beacon" || Math.abs(o.x - t.x) > 1 || Math.abs(o.y - t.y) > 1) continue;
       const rs = baseStats(o);
       buffDmg = Math.max(buffDmg, rs.buffDmg ?? 0);
       buffRange = Math.max(buffRange, rs.buffRange ?? 0);
@@ -233,7 +233,7 @@ export function stepBattle(b: Battle): BattleEvent[] {
 
   while (b.queueIdx < b.queue.length && b.queue[b.queueIdx].at <= b.t) {
     const q = b.queue[b.queueIdx++];
-    const def = UNITS[q.unit];
+    const def = unitVitals(q.unit, b.map.rulesVersion);
     const en: Enemy = {
       id: b.nextId++, unit: q.unit, source: q.source,
       hp: Math.round(def.hp * scale), maxHp: Math.round(def.hp * scale),
@@ -272,7 +272,7 @@ export function stepBattle(b: Battle): BattleEvent[] {
   for (let ti = 0; ti < b.towers.length; ti++) {
     const tr = b.towers[ti];
     const s = tr.stats;
-    if (tr.tower.type === "relay") continue;
+    if (tr.tower.type === "beacon") continue;
     tr.cooldown -= dt;
     if (tr.cooldown > 0) continue;
 
