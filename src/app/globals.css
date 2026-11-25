@@ -1,0 +1,79 @@
+@import "tailwindcss" source(none);
+@source "../";
+@source "../../scripts/standalone.ts";
+
+@theme {
+  --color-charcoal: #201f1b;
+  --color-walnut: #2d2b25;
+  --color-elevated: #39362f;
+  --color-bronze: #514b3f;
+  --color-parchment: #ede6d5;
+  --color-sand: #b2aa99;
+  --color-limestone: #c6b89b;
+  --color-brass: #a58b5e;
+  --color-jade: #7dc4b2;
+  --color-honey: #e8b86d;
+  --color-fern: #a1c181;
+  --color-terracotta: #d97860;
+  --shadow-instrument: inset 0 1px 0 #ede6d50d, 0 8px 18px -10px #000b;
+  --shadow-dialog: inset 0 1px 0 #ede6d50d, 0 16px 32px -12px #000c;
+  --animate-tick: tdv-tick .45s ease-out;
+  --animate-rise: tdv-rise .16s ease both;
+  --animate-fade: tdv-fade .2s ease both;
+  --animate-note: tdv-note 3s ease both;
+  --animate-idle: tdv-idle 6s steps(1) infinite;
+  --animate-joy: tdv-joy .55s ease 2;
+  --animate-sheen: tdv-sheen .9s ease-out both;
+}
+@theme inline {
+  --font-sans: var(--font-geist-sans, "Geist"), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono, "Geist Mono"), ui-monospace, monospace;
+}
+@layer base {
+  body { @apply bg-charcoal font-sans text-parchment antialiased; }
+  :focus-visible { @apply outline-2 outline-offset-2 outline-jade; }
+}
+@layer components {
+  .instrument { @apply rounded-lg border border-bronze bg-walnut shadow-instrument; }
+  button.instrument { @apply cursor-pointer text-left transition-colors hover:border-brass hover:bg-elevated aria-expanded:border-brass aria-expanded:bg-elevated motion-reduce:transition-none; }
+  .hud-slot { @apply absolute z-2 flex flex-col gap-1 has-[[role=dialog]]:z-5 sm:gap-2; }
+  .player-plate { @apply grid w-24 grid-cols-[auto_minmax(0,1fr)_auto] grid-rows-[24px_14px_3px] sm:grid-rows-[28px_4px] gap-x-1 gap-y-1 p-1.5 sm:w-48 sm:gap-x-2 sm:p-2; }
+  .player-plate canvas { @apply max-sm:size-6!; }
+  .player-name { @apply max-sm:col-span-full max-sm:row-start-2 flex min-w-0 flex-col justify-center; }
+  .player-name b { @apply truncate max-sm:text-[11px]/3.5; }
+  .player-name i { @apply hidden text-[11px]/3 text-sand sm:inline; }
+  .health { @apply max-sm:col-span-2 max-sm:row-start-1 flex items-center gap-1 transition-colors motion-reduce:transition-none; }
+  .health b { @apply text-xl/6 font-semibold tabular-nums; }
+  .figure { @apply flex flex-col gap-0.5; }
+  .figure > span { @apply flex items-center gap-1.5; }
+  .figure > i, .caption { @apply text-[11px]/3 text-sand; }
+  .figure b { @apply text-xl/5 font-semibold tabular-nums; }
+  .popover {
+    @apply absolute z-6 max-h-(--tdv-pop-max) w-62 overflow-y-auto rounded-lg border border-bronze bg-walnut p-3 text-xs/4 shadow-dialog motion-safe:animate-rise sm:w-72;
+    scrollbar-width: thin;
+  }
+  .popover header { @apply flex items-center gap-2; }
+  .popover header b { @apply block text-[15px]/5 font-semibold; }
+  .popover header span, .empty { @apply text-[11px]/3.5 text-sand; }
+  .popover header img { @apply size-10; }
+  .popover section { @apply mt-3 border-t border-bronze/60 pt-2; }
+  .popover h4 { @apply mb-1 text-[11px]/4 font-medium text-limestone; }
+  .popover h4 em { @apply text-terracotta; }
+  .popover p { @apply mt-1; }
+  .popover code { @apply mt-1 block rounded-md border border-bronze bg-charcoal px-2 py-1.5 font-mono text-[11px]/4 whitespace-pre-wrap text-limestone wrap-anywhere; }
+  .popover details { @apply mt-2; }
+  .popover summary { @apply cursor-pointer rounded text-[11px] text-sand; }
+  .action-log li { @apply flex gap-2 py-0.5; }
+  .action-log b { @apply ml-auto font-medium tabular-nums; }
+  .action-log i, .timeline i { @apply min-w-5 flex-none font-mono text-[11px]/4 text-sand; }
+  .timeline li { @apply grid grid-cols-[20px_1fr_40px_40px] items-baseline gap-2 py-0.5; }
+  .timeline b { @apply text-right font-medium tabular-nums; }
+  .timeline em { @apply col-span-2 truncate text-right text-[11px] text-sand; }
+}
+@keyframes tdv-idle { 0%, 46%, 54%, 100% { transform: none; } 48%, 52% { transform: translateY(1px); } }
+@keyframes tdv-joy { 0%, 100% { transform: none; } 45% { transform: translateY(-3px); } }
+@keyframes tdv-tick { from { transform: translateY(40%); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes tdv-rise { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; } }
+@keyframes tdv-note { 0% { opacity: 0; transform: translateY(-4px); } 10%, 85% { opacity: 1; transform: none; } 100% { opacity: 0; } }
+@keyframes tdv-sheen { from { transform: translateX(-120%); } to { transform: translateX(120%); } }
+@keyframes tdv-fade { from { opacity: 0; } to { opacity: 1; } }

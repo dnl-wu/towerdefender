@@ -1,0 +1,197 @@
+// Feedback: what an agent hears after every round, and the debrief after a match.
+// Notes are written to be acted on, by the agent mid-match and by the human
+// tuning the agent afterwards.
+import { TOWERS, UNITS, type TowerType, type UnitType } from "./data.ts";
+import type { DuelState, RoundRecord, Winner } from "./duel.ts";
+import { waveArchetype } from "./waves.ts";
+
+const IRREGULAR: Record<string, string> = { life: "lives", colossus: "colossi", Colossus: "Colossi" };
+const many = (word: string) => IRREGULAR[word] ?? `${word}s`;
+const plural = (n: number, word: string) => `${n} ${n === 1 ? word : many(word)}`;
+const unitCount = (n: number, u: UnitType) => plural(n, UNITS[u].name.toLowerCase());
+const unitList = (m: Partial<Record<UnitType, number>>) =>
+  (Object.keys(m) as UnitType[]).filter((u) => (m[u] ?? 0) > 0).map((u) => unitCount(m[u] ?? 0, u)).join(", ") || "nothing";
+const sentCount = (sent: { unit: UnitType; orders: number }[]) => sent.reduce((s, o) => s + o.orders * UNITS[o.unit].send.count, 0);
+
+export function roundReport(state: DuelState, player: 0 | 1, rec: RoundRecord) {
+  const me = rec.sides[player];
+  const opp = rec.sides[1 - player];
+  const lane = state.lanes[player];
+  const total = me.battle.towers.reduce((s, t) => s + t.dmg, 0) || 1;
+  const typeOf = new Map(lane.towers.map((t) => [t.id, t.type]));
+  const towers = me.battle.towers
+    .map((t) => ({ id: t.id, type: typeOf.get(t.id) ?? "sold", damage: t.dmg, share: Math.round((t.dmg / total) * 100), kills: t.kills, overkill: t.overkill }))
+    .sort((a, b) => b.damage - a.damage);
+
+  const notes: string[] = [];
+  const leakedAir = (["drone", "gunship"] as UnitType[]).reduce((s, u) => s + (me.battle.leaked[u] ?? 0), 0);
+  const hasAntiAir = lane.towers.some((t) => TOWERS[t.type].targets !== "ground" && t.type !== "frost" && t.type !== "relay");
+  if (leakedAir > 0 && !hasAntiAir) notes.push(`${plural(leakedAir, "flyer")} got through and you have no tower that can hit air.`);
+  for (const u of Object.keys(me.battle.leaked) as UnitType[]) {
+    const n = me.battle.leaked[u] ?? 0;
+    if (n > 0) notes.push(`${unitCount(n, u)} leaked (${plural(n * UNITS[u].lives, "life")}). Counter: ${counterHint(u)}`);
+  }
+  for (const u of Object.keys(me.battle.killDepth) as UnitType[]) {
+    const depth = me.battle.killDepth[u] ?? 0;
+    if (depth >= 0.85 && !(me.battle.leaked[u] ?? 0)) notes.push(`${many(UNITS[u].name)} died ${Math.round(depth * 100)}% of the way to your core on average. That is a narrow margin.`);
+  }
+  const idle = towers.filter((t) => t.damage === 0 && t.type !== "relay" && t.type !== "frost" && t.type !== "sold");
+  if (idle.length) notes.push(`Dealt no damage this round: ${idle.map((t) => `${TOWERS[t.type as TowerType].name} #${t.id}`).join(", ")}.`);
+  for (const t of towers) {
+    if (t.type !== "sold" && t.damage > 0 && t.overkill > t.damage * 0.6) notes.push(`${TOWERS[t.type as TowerType].name} #${t.id} wasted ${t.overkill} damage as overkill. A different targeting mode may fit it better.`);
+  }
+  const mySent = sentCount(me.sent);
+  if (mySent > 0) {
+    notes.push(
+      opp.battle.leakedLives.send > 0
+        ? `Your sends took ${plural(opp.battle.leakedLives.send, "life")} from the opponent.`
+        : `None of the ${mySent} units you sent got through.`,
+    );
+  }
+  if (me.battle.livesLost === 0 && me.goldAfter > 250 && state.status === "planning") notes.push(`You are holding ${me.goldAfter} gold. Unspent gold earns nothing.`);
+
+  return {
+    round: rec.round,
+    theme: waveArchetype(state.seed, rec.round),
+    you: {
+      livesLost: me.battle.livesLost, livesNow: me.livesAfter,
+      livesLostTo: { neutralWave: me.battle.leakedLives.base, opponentSends: me.battle.leakedLives.send },
+      faced: me.battle.spawned, leaked: me.battle.leaked,
+      killDepth: me.battle.killDepth,
+      bountyEarned: me.battle.bounty, incomePaid: me.incomeAfter, goldNow: me.goldAfter,
+      towers,
+    },
+    opponentSentYou: opp.sent.map((o) => ({ unit: o.unit, units: o.orders * UNITS[o.unit].send.count })),
+    yourSends: { sent: me.sent.map((o) => ({ unit: o.unit, units: o.orders * UNITS[o.unit].send.count })), goldSpent: me.sendSpent, livesTaken: opp.battle.leakedLives.send },
+    opponent: { livesLost: opp.battle.livesLost, livesNow: opp.livesAfter, leaked: opp.battle.leaked, income: opp.incomeAfter },
+    notes,
+  };
+}
+
+function counterHint(u: UnitType): string {
+  switch (u) {
+    case "scuttler": return "splash (Mortar) or chaining (Arc Coil).";
+    case "runner": return "more damage early on the path, or a Frost Vent to hold them in range.";
+    case "shellback": return "Arc Coil breaks shields at double damage.";
+    case "drone": return "Flak on the flight line.";
+    case "gunship": return "Flak (Seeker) or Harpoon; nailguns barely scratch its armour.";
+    case "hulk": return "Harpoon ignores armour.";
+    default: return "stacked Harpoons with 'strong' targeting, and slows to keep it in range.";
+  }
+}
+
+export interface Debrief {
+  result: "win" | "loss" | "draw";
+  endReason: string;
+  rounds: number;
+  turningPoint: { round: number; text: string } | null;
+  timeline: { round: number; theme: string; lives: [number, number]; income: [number, number]; towerValue: [number, number] }[];
+  economy: { you: SideEconomy; opponent: SideEconomy };
+  livesLostBy: { unit: UnitType; lives: number; fromSends: boolean }[];
+  sends: { unit: UnitType; gold: number; units: number }[];
+  towers: { type: TowerType; count: number; gold: number; damage: number; damagePerGold: number }[];
+  findings: string[];
+}
+
+interface SideEconomy {
+  towerGold: number;
+  sendGold: number;
+  bounty: number;
+  finalIncome: number;
+  livesTaken: number;
+}
+
+export function debrief(state: DuelState, player: 0 | 1): Debrief {
+  const other = (1 - player) as 0 | 1;
+  const winner: Winner | null = state.winner;
+  const result = winner === "draw" || winner === null ? "draw" : winner === player ? "win" : "loss";
+  const me = state.lanes[player];
+  const opp = state.lanes[other];
+
+  const timeline = state.history.map((r) => ({
+    round: r.round, theme: waveArchetype(state.seed, r.round),
+    lives: [r.sides[player].livesAfter, r.sides[other].livesAfter] as [number, number],
+    income: [r.sides[player].incomeAfter, r.sides[other].incomeAfter] as [number, number],
+    towerValue: [r.sides[player].towerValue, r.sides[other].towerValue] as [number, number],
+  }));
+
+  // The round where the gap in lives moved furthest in the eventual direction of the result.
+  let turningPoint: Debrief["turningPoint"] = null;
+  let bestSwing = 0;
+  for (const r of state.history) {
+    const mine = r.sides[player].battle.livesLost;
+    const theirs = r.sides[other].battle.livesLost;
+    const swing = result === "win" ? theirs - mine : mine - theirs;
+    if (swing > bestSwing) {
+      bestSwing = swing;
+      const side = result === "win" ? r.sides[other] : r.sides[player];
+      const who = result === "win" ? "The opponent" : "You";
+      turningPoint = {
+        round: r.round,
+        text: `${who} lost ${plural(side.battle.livesLost, "life")} in round ${r.round} (${waveArchetype(state.seed, r.round)}): ${unitList(side.battle.leaked)} leaked, ${side.battle.leakedLives.send} of those lives to sends.`,
+      };
+    }
+  }
+
+  const lost = new Map<string, { unit: UnitType; lives: number; fromSends: boolean }>();
+  let lostToSends = 0;
+  let lostTotal = 0;
+  for (const r of state.history) {
+    const b = r.sides[player].battle;
+    lostToSends += b.leakedLives.send;
+    lostTotal += b.livesLost;
+    for (const u of Object.keys(b.leaked) as UnitType[]) {
+      const lives = (b.leaked[u] ?? 0) * UNITS[u].lives;
+      const e = lost.get(u) ?? { unit: u, lives: 0, fromSends: false };
+      e.lives += lives;
+      lost.set(u, e);
+    }
+  }
+  const livesLostBy = [...lost.values()].sort((a, b) => b.lives - a.lives);
+
+  const sendTotals = new Map<UnitType, { unit: UnitType; gold: number; units: number }>();
+  for (const r of state.history) {
+    for (const o of r.sides[player].sent) {
+      const e = sendTotals.get(o.unit) ?? { unit: o.unit, gold: 0, units: 0 };
+      e.gold += o.orders * UNITS[o.unit].send.cost;
+      e.units += o.orders * UNITS[o.unit].send.count;
+      sendTotals.set(o.unit, e);
+    }
+  }
+
+  const byType = new Map<TowerType, { type: TowerType; count: number; gold: number; damage: number; damagePerGold: number }>();
+  for (const t of me.towers) {
+    const e = byType.get(t.type) ?? { type: t.type, count: 0, gold: 0, damage: 0, damagePerGold: 0 };
+    e.count++;
+    e.gold += t.invested;
+    e.damage += t.dmg;
+    byType.set(t.type, e);
+  }
+  const towers = [...byType.values()].map((e) => ({ ...e, damagePerGold: e.gold ? Math.round((e.damage / e.gold) * 10) / 10 : 0 })).sort((a, b) => b.damage - a.damage);
+
+  const findings: string[] = [];
+  if (lostTotal > 0) {
+    const top = livesLostBy[0];
+    findings.push(`${many(UNITS[top.unit].name)} cost you ${top.lives} of the ${lostTotal} lives you lost. Counter: ${counterHint(top.unit)}`);
+    if (lostToSends > lostTotal * 0.5) findings.push(`${lostToSends} of those lives went to units the opponent sent, not the neutral waves. Scout their send pattern and keep a margin against it.`);
+    else if (lostToSends === 0) findings.push("Every life you lost went to the neutral waves, which are forecast three rounds ahead.");
+  }
+  const firstAir = state.history.find((r) => (r.sides[player].battle.spawned.drone ?? 0) + (r.sides[player].battle.spawned.gunship ?? 0) > 0);
+  const airLeak = state.history.reduce((s, r) => s + (r.sides[player].battle.leaked.drone ?? 0) + (r.sides[player].battle.leaked.gunship ?? 0) * 2, 0);
+  if (firstAir && airLeak >= 4) findings.push(`Flyers took ${airLeak} lives. They first appeared in round ${firstAir.round}.`);
+  if (me.totals.sendGold === 0) findings.push("You never sent anything. Sends raise your income permanently; a pure defence falls behind on gold every round.");
+  else if (me.totals.livesTaken === 0) findings.push(`You spent ${me.totals.sendGold} gold on sends and took no lives. They still paid for themselves as income if bought early, but none of them tested a weakness.`);
+  if (opp.income > me.income * 1.5 && state.history.length >= 6) findings.push(`The opponent finished with ${opp.income} income against your ${me.income}. They out-earned you for most of the match.`);
+  const weak = towers.filter((t) => t.gold >= 150 && t.type !== "relay" && t.type !== "frost").sort((a, b) => a.damagePerGold - b.damagePerGold)[0];
+  const strong = towers[0];
+  if (weak && strong && weak.type !== strong.type && weak.damagePerGold < strong.damagePerGold * 0.4) {
+    findings.push(`${TOWERS[weak.type].name}s returned ${weak.damagePerGold} damage per gold against ${strong.damagePerGold} for ${TOWERS[strong.type].name}s. Check their placement and whether the waves called for them.`);
+  }
+
+  const econ = (l: typeof me): SideEconomy => ({ towerGold: l.totals.towerGold, sendGold: l.totals.sendGold, bounty: l.totals.bounty, finalIncome: l.income, livesTaken: l.totals.livesTaken });
+  return {
+    result, endReason: state.endReason ?? "", rounds: state.history.length, turningPoint, timeline,
+    economy: { you: econ(me), opponent: econ(opp) },
+    livesLostBy, sends: [...sendTotals.values()].sort((a, b) => b.gold - a.gold), towers, findings,
+  };
+}
