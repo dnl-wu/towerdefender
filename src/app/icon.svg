@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <title>Tower Defender</title>
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#39362F"/>
+      <stop offset="1" stop-color="#201F1B"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="14" fill="url(#sky)"/>
+  <g transform="translate(32 32) scale(1.08) translate(-32 -32)">
+
+  <!-- Loose rocks drifting under the island -->
+  <path d="M9 50 l3 -1.5 3 1.5 -3 1.5z" fill="#6f665b"/>
+  <path d="M9 50 l3 1.5 v2 l-3 -1.5z" fill="#57534b"/>
+  <path d="M15 50 l-3 1.5 v2 l3 -1.5z" fill="#4d4a50"/>
+  <path d="M49 55 l2.5 -1.25 2.5 1.25 -2.5 1.25z" fill="#6f665b"/>
+  <path d="M49 55 l2.5 1.25 v1.75 l-2.5 -1.25z" fill="#57534b"/>
+  <path d="M54 55 l-2.5 1.25 v1.75 l2.5 -1.25z" fill="#4d4a50"/>
+
+  <!-- Underside: a band of clay, then rock tapering to a point -->
+  <path d="M10 34 L32 45 L32 50 L13 40z" fill="#9a6f4c"/>
+  <path d="M54 34 L32 45 L32 50 L51 40z" fill="#73533a"/>
+  <path d="M13 40 L32 50 L32 60 L27 54 L21 51 L18 44z" fill="#6f665b"/>
+  <path d="M51 40 L32 50 L32 60 L37 54 L43 51 L46 44z" fill="#4d4a50"/>
+
+  <!-- Turf: lit top, two shaded sides -->
+  <path d="M10 30 L32 41 L32 45 L10 34z" fill="#687B4B"/>
+  <path d="M54 30 L32 41 L32 45 L54 34z" fill="#4f6139"/>
+  <path d="M10 30 L32 19 L54 30 L32 41z" fill="#8FA65A"/>
+  <path d="M15 30 L32 21.5 L49 30 L32 38.5z" fill="#97ad60" opacity=".55"/>
+
+  <!-- A shrub at the island's edge -->
+  <path d="M43 31 l4 -2 4 2 -4 2z" fill="#5a7a4f"/>
+  <path d="M43 31 l4 2 v3.5 l-4 -2z" fill="#42603f"/>
+  <path d="M51 31 l-4 2 v3.5 l4 -2z" fill="#354A38"/>
+
+  <!-- The tower -->
+  <path d="M25 17.5 L32 21 L32 33 L25 29.5z" fill="#E6DCC8"/>
+  <path d="M39 17.5 L32 21 L32 33 L39 29.5z" fill="#B8AB91"/>
+  <path d="M25 17.5 L32 14 L39 17.5 L32 21z" fill="#F4EEDF"/>
+  <!-- Its doorway and a brass band under the parapet -->
+  <path d="M27.5 28.2 L30 29.45 L30 25.2 L27.5 23.95z" fill="#45423f"/>
+  <path d="M25 20.5 L32 24 L32 25.5 L25 22z" fill="#B99A5E"/>
+  <path d="M39 20.5 L32 24 L32 25.5 L39 22z" fill="#8f7545"/>
+
+  <!-- The core crystal, floating above the tower -->
+  <path d="M32 2.5 L36 7.5 L32 10 L28 7.5z" fill="#A8E0D2"/>
+  <path d="M28 7.5 L32 10 L32 12.5 z" fill="#7DC4B2"/>
+  <path d="M36 7.5 L32 10 L32 12.5 z" fill="#4f9a88"/>
+  </g>
+</svg>
