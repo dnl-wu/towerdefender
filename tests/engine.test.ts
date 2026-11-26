@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { playBotMatch } from "../scripts/balance.ts";
-import { playTurtleTurn } from "../src/engine/bots.ts";
+import { playBotTurn, playTurtleTurn, snapshotOpponent } from "../src/engine/bots.ts";
 import { runBattle, type Tower } from "../src/engine/battle.ts";
 import { DRUMS, RULES, UNITS, drumsPrice, lootFor, scannerPrice, sendCap } from "../src/engine/data.ts";
 import { applyAction, commit, createDuel, endKind, forfeit, laneBattle, replayDuel, resolveRound } from "../src/engine/duel.ts";
@@ -451,4 +451,28 @@ test("a match with War Drums replays identically from its log", () => {
   }
   assert.deepEqual(again.lanes.map((l) => [l.lives, l.gold, l.income]), s.lanes.map((l) => [l.lives, l.gold, l.income]));
   assert.deepEqual(again.history.map((r) => r.sides.map((x) => x.drums)), s.history.map((r) => r.sides.map((x) => x.drums)));
+});
+
+test("Tyrant keeps a margin for a hidden burst after a quiet round", () => {
+  // A quiet opponent sends one kobold order a round; from round 6, a copy of each round has it spend the
+  // whole send cap on kobolds instead. Before Tyrant planned for this, a burst like that took a third of a core.
+  let rounds = 0, lives = 0;
+  for (let g = 0; g < 8; g++) {
+    const s = createDuel(60000 + g * 37);
+    while (s.status === "planning" && s.round <= 10) {
+      playBotTurn(s, 0, 5, snapshotOpponent(s, 0), g * 2 + 1);
+      playTurtleTurn(s, 1);
+      if (s.round >= 6) {
+        const fork = structuredClone(s);
+        const orders = Math.floor(Math.min(sendCap(fork.round), fork.lanes[1].gold) / UNITS.kobold.send.cost);
+        if (orders > 0) applyAction(fork, 1, { type: "send", unit: "kobold", orders });
+        commit(fork, 0); commit(fork, 1);
+        lives += resolveRound(fork).sides[0].battle.livesLost; rounds++;
+      }
+      applyAction(s, 1, { type: "send", unit: "kobold", orders: 1 });
+      commit(s, 0); commit(s, 1); resolveRound(s);
+    }
+  }
+  assert.ok(rounds >= 8, `measured ${rounds} rounds`);
+  assert.ok(lives / rounds < 2.5, `a surprise burst cost Tyrant ${(lives / rounds).toFixed(1)} lives a round`);
 });

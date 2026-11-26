@@ -90,7 +90,15 @@ interface Temperament {
   scanAt: number;
   /** Extra orders assumed on top of the opponent's last send. */
   escalate: number;
+  /**
+   * Share of the send cap assumed to be on its way, hidden, from the round raids
+   * get dangerous: a player who sent little last round may be saving for a burst.
+   */
+  wariness: number;
 }
+
+/** From this round a quiet opponent is no longer assumed to stay quiet. */
+const WARY_FROM = 5;
 
 function temperament(state: DuelState, player: 0 | 1, level: number, salt: number): Temperament {
   const r = new Rng(hashSeed("temper", state.seed, player, level, salt));
@@ -101,6 +109,8 @@ function temperament(state: DuelState, player: 0 | 1, level: number, salt: numbe
     vary: span(0.2, 0.45),
     scanAt: span(8, 12),
     escalate: r.chance(0.7) ? 1 : 0,
+    // Drawn last, so the traits above keep their values for a given match.
+    wariness: span(0.6, 0.9),
   };
 }
 
@@ -339,8 +349,20 @@ function botMoves(state: DuelState, player: 0 | 1, level: number, opp: OpponentS
   let threat: BattleMods = {};
   if (level >= 5) {
     // Assume the opponent repeats, and maybe escalates, their last send, and beats drums again if they just did.
-    const guess = opp.lastSent.length ? opp.lastSent : round >= 2 ? [{ unit: "kobold" as UnitType, orders: 1 }] : [];
-    expected = sendGroups(guess.map((o) => ({ unit: o.unit, orders: o.orders + (round > 4 ? temper.escalate : 0) })));
+    const guess = (opp.lastSent.length ? opp.lastSent : round >= 2 ? [{ unit: "kobold" as UnitType, orders: 1 }] : [])
+      .map((o) => ({ unit: o.unit, orders: o.orders + (round > 4 ? temper.escalate : 0) }));
+    // Raiders stay hidden until the battle, so a quiet round proves nothing. Cover a burst of kobolds,
+    // the cheapest swarm, up to a share of the send cap, on top of whatever the repeat already covers.
+    if (round >= WARY_FROM) {
+      const kobold = UNITS.kobold.send.cost;
+      const covered = guess.reduce((g, o) => g + o.orders * UNITS[o.unit].send.cost, 0);
+      const burst = Math.floor((temper.wariness * sendCap(round) - covered) / kobold);
+      if (burst > 0) {
+        const k = guess.find((o) => o.unit === "kobold");
+        if (k) k.orders += burst; else guess.push({ unit: "kobold", orders: burst });
+      }
+    }
+    expected = sendGroups(guess);
     if (opp.lastDrums) threat = { haste: DRUMS.haste };
   }
   turn.defendBySimulation(expected, level >= 5 ? 0 : 1, threat);

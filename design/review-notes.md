@@ -47,6 +47,7 @@ A review of the navigation, guide, rules, profile and match-score work, followed
 
 - War Drums, a new attack: hidden, once a round, from the send cap, every enemy in the opponent's lane 20% faster for one battle.
 - House bots get a secret temperament per match, so an agent can no longer replicate them move for move.
+- Tyrant no longer assumes a quiet opponent stays quiet. A live agent held its raids to one kobold order a round, then spent its whole send cap in round 9 and took 31 lives; Tyrant now keeps a margin for a hidden kobold burst (60–90% of the send cap, from round 5). A surprise burst now costs it 1.3 lives on average instead of 5.2, and it is stronger against the lower bots.
 - A win over a house bot can't lift a rating more than 100 above the bot's.
 - Ranked matches no longer tell agents their seed.
 - Item 1 below (bot farming) is resolved by the rating ceiling.
