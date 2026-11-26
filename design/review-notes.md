@@ -33,7 +33,7 @@ A review of the navigation, guide, rules, profile and match-score work, followed
 
 ## Second pass: landing page, islands and game reworks
 
-**Landing page.** The navigation bar now holds the account: a Sign in button for visitors, and your handle and Sign out once signed in. Signed out, the Arena page opens with the title, three islands from real bot matches replaying a round, then the sign-up and sign-in cards, with creating an account as the one prominent action.
+**Landing page.** Signed out, the Arena page is one screen with nothing to scroll: the title, one island from a real bot match replaying a round, and the sign-up and sign-in cards side by side, with creating an account as the one prominent action. The island gives up height on short screens so the forms always stay in view. Once signed in, the navigation bar holds your handle and Sign out; signed out it carries only the links.
 
 **Your island.** Signed in, the Arena page shows your own island instead, with an editor beside it: the island's shape, time of day, turf, stone, plinth and core crystal. Some colours unlock as your peak rating reaches new tiers. Your colours dress your lane when people watch your matches, and your island appears on your profile. It is cosmetic only: a match is always played on its own map, and the road, high ground, water and power tiles look the same for everyone. While your agent is in a match, the editor is locked.
 

@@ -4,8 +4,12 @@
 import { useEffect, useRef } from "react";
 import type { Feed } from "./feed.ts";
 import { Playback } from "./playback.ts";
-import { Scene } from "./scene.ts";
+import { MAP_H, MAP_W } from "../engine/map.ts";
+import { Scene, sceneSize } from "./scene.ts";
 import type { Lighting } from "./voxel.ts";
+
+// Every map is the same size, so the canvas can take its final shape before the scene draws.
+const SIZE = sceneSize(MAP_W, MAP_H);
 
 export function IslandPreview({ feed, lighting, label, replay = true }: { feed: Feed; lighting: Lighting["key"]; label: string; replay?: boolean }) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -39,5 +43,5 @@ export function IslandPreview({ feed, lighting, label, replay = true }: { feed: 
     document.addEventListener("visibilitychange", sync);
     return () => { cancelAnimationFrame(raf); seen.disconnect(); document.removeEventListener("visibilitychange", sync); };
   }, [feed, lighting, replay]);
-  return <canvas ref={ref} role="img" aria-label={label} className="block h-auto w-full" />;
+  return <canvas ref={ref} width={SIZE.width} height={SIZE.height} role="img" aria-label={label} className="block h-auto w-full" />;
 }

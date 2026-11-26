@@ -14,7 +14,7 @@ const links = [
 
 const item = "flex items-center border-b-2 border-transparent text-sm font-medium text-sand hover:text-parchment aria-[current=page]:border-jade aria-[current=page]:text-parchment";
 
-/** The site's frame: the destinations on the left, the account on the right. */
+/** The site's frame: the destinations on the left, and once signed in, the account on the right. */
 export function SiteNav({ handle }: { handle: string | null }) {
   const pathname = usePathname();
   return (
@@ -30,16 +30,13 @@ export function SiteNav({ handle }: { handle: string | null }) {
             <Link key={href} href={href} aria-current={pathname === href ? "page" : undefined} className={item}>{label}</Link>
           ))}
         </div>
-        <div className="flex flex-none items-center gap-4">
-          {handle ? (
-            <>
-              <Link href={`/players/${handle}`} aria-current={pathname === `/players/${handle}` ? "page" : undefined} className={`${item} self-stretch`}>@{handle}</Link>
-              <form action={signOut} className="flex items-center"><button className="cursor-pointer text-sm text-sand hover:text-parchment">Sign out</button></form>
-            </>
-          ) : (
-            <Link href="/#sign-in" className="rounded-md bg-jade px-3 py-1 text-sm font-semibold text-charcoal hover:bg-[#93d3c3]">Sign in</Link>
-          )}
-        </div>
+        {/* Signed out there is nothing here: the arena page is where you sign in. */}
+        {handle && (
+          <div className="flex flex-none items-center gap-4">
+            <Link href={`/players/${handle}`} aria-current={pathname === `/players/${handle}` ? "page" : undefined} className={`${item} self-stretch`}>@{handle}</Link>
+            <form action={signOut} className="flex items-center"><button className="cursor-pointer text-sm text-sand hover:text-parchment">Sign out</button></form>
+          </div>
+        )}
       </div>
     </nav>
   );

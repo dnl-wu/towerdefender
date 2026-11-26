@@ -11,6 +11,12 @@ import { DEPTH, HEAD_FRAMES, T, buildArt, cellHeight, featureAt, type Art } from
 
 /** Logical pixels per voxel, and how high flyers travel. */
 const S = 5;
+
+/** The canvas size, before the pixel ratio, for a map of w by h tiles. Known up front so a page can reserve the space. */
+export function sceneSize(w: number, h: number): { width: number; height: number } {
+  const across = (w + h) * T * S;
+  return { width: across + 80, height: 104 + across / 2 + (DEPTH + 4) * S + 60 };
+}
 const ALT = 22;
 
 export type Hit = { kind: "tower"; id: number } | { kind: "gate" } | { kind: "core" };
@@ -57,8 +63,7 @@ export class Scene {
     const map = pb.map;
     this.dpr = dpr ?? Math.min(2, window.devicePixelRatio || 1);
     this.s = S * this.dpr;
-    this.width = (map.w * T + map.h * T) * S + 80;
-    this.height = 104 + ((map.w * T + map.h * T) * S) / 2 + (DEPTH + 4) * S + 60;
+    ({ width: this.width, height: this.height } = sceneSize(map.w, map.h));
     canvas.width = this.width * this.dpr;
     canvas.height = this.height * this.dpr;
     this.g = canvas.getContext("2d")!;
