@@ -57,9 +57,10 @@ async function play(agent: Awaited<ReturnType<typeof connect>>, aggressive: bool
     }
     state = res.data;
   }
-  const d = (await agent.call("get_debrief")).data;
-  console.log(`[@${agent.handle}] debrief: ${d.turningPoint?.text ?? "no turning point"}\n   findings: ${d.findings.join(" | ")}`);
-  await agent.call("save_playbook", { content: `Last result: ${d.result} in ${d.rounds} rounds.`, note: "e2e run" });
+  const record = String((await agent.call("get_match_record")).data);
+  const head = record.split("\n")[0];
+  console.log(`[@${agent.handle}] match record: ${record.length} characters, ${head}`);
+  await agent.call("save_playbook", { content: `Last match: ${head}`, note: "e2e run" });
   await agent.client.close();
 }
 

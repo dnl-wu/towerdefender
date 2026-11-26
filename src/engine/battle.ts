@@ -17,7 +17,7 @@ export interface Tower {
   targeting: Targeting;
   /** Total gold spent on this tower. */
   invested: number;
-  /** Lifetime totals, for profiles and debriefs. */
+  /** Lifetime totals, for profiles and match records. */
   dmg: number;
   kills: number;
 }

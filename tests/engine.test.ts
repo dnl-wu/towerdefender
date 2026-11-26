@@ -8,7 +8,8 @@ import { applyAction, commit, createDuel, endKind, forfeit, laneBattle, replayDu
 import { readMatchLog, writeMatchLog } from "../src/engine/match-log.ts";
 import { generateMap, isBuildable } from "../src/engine/map.ts";
 import { scoutView, stateView } from "../src/engine/view.ts";
-import { debrief, roundReport } from "../src/engine/report.ts";
+import { matchRecord } from "../src/engine/record.ts";
+import { roundReport } from "../src/engine/report.ts";
 import { baseWave } from "../src/engine/waves.ts";
 
 const tower = (over: Partial<Tower>): Tower => ({
@@ -360,18 +361,28 @@ test("the watched player's log follows planning orders, core hits and settled go
   assert.deepEqual(replay.activity[0].map(e => e.amount), [-20, -scannerPrice(1)]);
 });
 
-test("the debrief splits lost lives between the neutral wave and the opponent's sends", () => {
+test("the match record splits what a lane faced and leaked between the neutral wave and the opponent's sends", () => {
   const s = createDuel(7);
   assert.ok(applyAction(s, 1, { type: "send", unit: "kobold" }).ok);
   commit(s, 0); commit(s, 1);
   const rec = resolveRound(s);
-  const { livesLostBy } = debrief(s, 0);
-  const sent = livesLostBy.find((e) => e.unit === "kobold" && e.fromSends);
-  const neutral = livesLostBy.filter((e) => !e.fromSends);
-  assert.equal(sent?.lives, UNITS.kobold.send.count, "an undefended lane leaks every kobold sent at it");
-  assert.equal(sent!.lives, rec.sides[0].battle.leakedLives.send);
-  assert.equal(neutral.reduce((n, e) => n + e.lives, 0), rec.sides[0].battle.leakedLives.base);
-  assert.equal(livesLostBy.reduce((n, e) => n + e.lives, 0), RULES.startLives - s.lanes[0].lives);
+  const text = matchRecord(s, { id: "t", mode: "practice", handles: ["a", "b"], you: 0 });
+  const fightA = text.split("\n").find((l) => l.startsWith("A fight"))!;
+  const sent = UNITS.kobold.send.count, b = rec.sides[0].battle;
+  assert.match(fightA, new RegExp(`faced .*kobold:${(b.spawned.kobold ?? 0) - sent}\\+${sent}`));
+  assert.match(fightA, new RegExp(`leaked .*kobold:\\d+\\+${sent}`), "an undefended lane leaks every kobold sent at it");
+  assert.ok(fightA.includes(`lives -${b.leakedLives.base}-${b.leakedLives.send}`));
+  assert.equal(b.leakedLives.base + b.leakedLives.send, RULES.startLives - s.lanes[0].lives);
+});
+
+test("the match record lists every accepted action and both final boards", () => {
+  const s = playBotMatch(4242, 5, 3);
+  const text = matchRecord(s, { id: "t", mode: "practice", handles: ["a", "b"], you: null });
+  const lines = text.split("\n");
+  const done = lines.filter((l) => /^[AB] do /.test(l)).reduce((n, l) => n + (l.endsWith(" do -") ? 0 : l.split(" do ")[1].match(/say"(?:[^"\\]|\\.)*"|\S+/g)!.length), 0);
+  assert.equal(done, s.log.slice(0, s.history.length).reduce((n, r) => n + r[0].length + r[1].length, 0));
+  assert.equal(lines.filter((l) => /^r\d+ /.test(l)).length, s.history.length);
+  for (const p of [0, 1] as const) assert.ok(text.includes(`final ${"AB"[p]}\n${s.lanes[p].towers.map((t) => `${t.id} ${t.type} ${t.x},${t.y}`)[0] ?? ""}`));
 });
 
 test("every way a match can end is told apart", () => {

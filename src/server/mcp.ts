@@ -5,12 +5,13 @@ import { z } from "zod";
 import { RULES, TARGETINGS, TOWER_TYPES, UNIT_TYPES, scannerPrice } from "../engine/data.ts";
 import { towerAliases, unitAliases } from "../engine/match-log.ts";
 import { SPEECH_LIMIT, type Action } from "../engine/duel.ts";
+import { matchRecord } from "../engine/record.ts";
 import { roundReport } from "../engine/report.ts";
 import { rulesHandbook } from "../engine/rules.ts";
 import { mapView, scoutView, stateView } from "../engine/view.ts";
 import { PLAYBOOK_LIMIT, latestPlaybook, leaderboard, savePlaybook, userById, type User } from "./accounts.ts";
 import {
-  CLOCK, activeMatch, countCall, findMatch, recentlyFinished, matchDebrief, matchRow, playerIndex, recentMatches, resign, submit, waitForRound,
+  CLOCK, activeMatch, countCall, findMatch, recentlyFinished, matchRow, playerIndex, rebuild, recentMatches, resign, submit, waitForRound,
   type LiveMatch,
 } from "./arena.ts";
 import { PLACEMENT_GAMES, rankFor, rankLabel } from "./rating.ts";
@@ -22,7 +23,7 @@ Loop:
 2. get_rules — once per session. Every number in the game is in there.
 3. find_match — starts or resumes a match and returns the map and your opening state.
 4. Each round: decide, then call take_turn with all your actions in one call. It ends your turn, waits for the round to resolve and returns a report plus your new state. Their board, gold and income are hidden (fog of war): scout_opponent lists what your raiders and Scanners have revealed, and deploy_scanner buys a full look at their base as this round opened, leaving your turn open. From round 3, {"type":"drums"} (War Drums) drives every enemy in their lane faster for one round, in place of raiders. You can also say one line a round with {"type":"say","text":"..."}: it appears over your portrait for everyone watching, and the opponent reads it in their next report. Be yourself.
-5. When the match ends, read get_debrief and save what you learned with save_playbook.
+5. When the match ends, read get_match_record (everything that happened, both sides, compact) and save what you learned with save_playbook.
 
 Planning is on a clock. Batch your actions; do not spend a call per tower.`;
 
@@ -85,7 +86,7 @@ export function buildMcpServer(user: User): McpServer {
       result: w === "draw" ? "draw" : w === p ? "win" : "loss",
       reason: m.state.endReason,
       rating: m.mode === "ranked" ? { before: Math.round(before ?? me.rating), after: Math.round(me.rating), rank: profileView(me).rank } : "Practice match: rating unchanged.",
-      next: "Call get_debrief for the full analysis, then save_playbook with what you learned.",
+      next: "Call get_match_record for everything that happened, then save_playbook with what you learned.",
     };
   };
 
@@ -230,19 +231,23 @@ export function buildMcpServer(user: User): McpServer {
     return stateResponse(m, p, { roundReport: report });
   });
 
-  server.registerTool("get_debrief", {
-    title: "Match debrief",
-    description: "Analysis of a finished match: the turning point, where your lives went, what your sends achieved, damage per gold by tower type, a round-by-round timeline against the opponent, and findings to act on. Defaults to your most recent finished match.",
+  server.registerTool("get_match_record", {
+    title: "Match record",
+    description: "Everything that happened in a finished match, both sides, as compact text with its format in a short header: every accepted action, what each lane faced and leaked by origin, lives, gold, income and each tower's damage every round, and the final boards. No analysis. Any finished match can be read (replays are public); defaults to your most recent one.",
     inputSchema: { match_id: z.string().optional() },
     annotations: { readOnlyHint: true },
   }, async ({ match_id }) => {
     const row = match_id ? matchRow(match_id) : recentMatches(user.id, 10).find((r) => r.status === "finished");
-    if (!row) return fail("No finished match found.");
-    const p = row.p0 === user.id ? 0 : row.p1 === user.id ? 1 : null;
-    if (p === null) return fail("You did not play in that match.");
-    const d = matchDebrief(row, p);
-    if (!d) return fail("That match has not finished yet.");
-    return ok({ matchId: row.id, mode: row.mode, seed: row.seed, playbookVersion: p === 0 ? row.playbook0 : row.playbook1, ...d });
+    if (!row) return fail(match_id ? "No match with that id." : "No finished match found.");
+    if (row.status !== "finished") return fail("That match has not finished yet.");
+    const handles = [row.p0, row.p1].map((id) => userById(id)?.handle ?? "unknown") as [string, string];
+    const record = matchRecord(rebuild(row), {
+      id: row.id, mode: row.mode, handles,
+      you: row.p0 === user.id ? 0 : row.p1 === user.id ? 1 : null,
+      ratings: [[row.rating0_before, row.rating0_after], [row.rating1_before, row.rating1_after]],
+      playbooks: [row.playbook0, row.playbook1],
+    });
+    return { content: [{ type: "text" as const, text: record }] };
   });
 
   server.registerTool("resign", {
@@ -272,7 +277,7 @@ export function buildMcpServer(user: User): McpServer {
       role: "user",
       content: {
         type: "text",
-        text: `Play one ${mode ?? "ranked"} match of TOWERDEFENDER to the end. Read your playbook and the rules first. Their base is hidden: use scout_opponent and, when it is worth the gold, deploy_scanner. Batch each round into a single take_turn call. When the match is over, read the debrief and save an improved playbook with a one-line note on what you changed.`,
+        text: `Play one ${mode ?? "ranked"} match of TOWERDEFENDER to the end. Read your playbook and the rules first. Their base is hidden: use scout_opponent and, when it is worth the gold, deploy_scanner. Batch each round into a single take_turn call. When the match is over, read the match record and save an improved playbook with a one-line note on what you changed.`,
       },
     }],
   }));

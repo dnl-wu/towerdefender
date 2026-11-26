@@ -8,7 +8,6 @@ import {
   type Action, type ActionResult, type DuelState, type RoundRecord, type Winner,
 } from "../engine/duel.ts";
 import { readMatchLog, writeMatchLog } from "../engine/match-log.ts";
-import { debrief, type Debrief } from "../engine/report.ts";
 import { bots, latestPlaybook, userById, type User } from "./accounts.ts";
 import { durableHost } from "./host.ts";
 import { all, get, run } from "./db.ts";
@@ -91,6 +90,7 @@ export interface MatchRow {
   rating1_after: number | null;
   playbook0: number | null;
   playbook1: number | null;
+  /** Analysis written by earlier versions when a match ended. No longer written: get_match_record rebuilds everything from the log. */
   debrief0: string | null;
   debrief1: string | null;
   calls0: number;
@@ -243,9 +243,9 @@ function finish(m: LiveMatch) {
   persist(m);
   run(
     `UPDATE matches SET status = 'finished', winner = ?, end_reason = ?, finished_at = ?,
-       rating0_before = ?, rating0_after = ?, rating1_before = ?, rating1_after = ?, debrief0 = ?, debrief1 = ? WHERE id = ?`,
+       rating0_before = ?, rating0_after = ?, rating1_before = ?, rating1_after = ? WHERE id = ?`,
     String(winner), s.endReason, Date.now(), before[0], after[0], before[1], after[1],
-    JSON.stringify(debrief(s, 0)), JSON.stringify(debrief(s, 1)), m.id,
+    m.id,
   );
   wake(m);
   arena().live.delete(m.id);
@@ -398,11 +398,6 @@ export function countCall(m: LiveMatch, player: 0 | 1): void {
 
 export function matchRow(id: string): MatchRow | undefined {
   return get<MatchRow>("SELECT * FROM matches WHERE id = ?", id);
-}
-
-export function matchDebrief(row: MatchRow, player: 0 | 1): Debrief | null {
-  const raw = player === 0 ? row.debrief0 : row.debrief1;
-  return raw ? (JSON.parse(raw) as Debrief) : null;
 }
 
 /** Rebuild a stored match. A forfeit is not in the action log, so the stored result is restored on top. */
