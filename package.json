@@ -10,7 +10,6 @@
     "typecheck": "tsc --noEmit",
     "test": "node --test --experimental-strip-types 'tests/**/*.test.ts'",
     "balance": "node --experimental-strip-types scripts/balance.ts",
-    "seed": "node --experimental-strip-types scripts/seed.ts",
     "demo": "node --experimental-strip-types scripts/demo.ts",
     "standalone": "node --experimental-strip-types scripts/standalone.ts",
     "account": "node --experimental-strip-types scripts/account.ts",

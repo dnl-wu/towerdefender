@@ -312,6 +312,17 @@ export function resolveRound(state: DuelState): RoundRecord {
   return record;
 }
 
+/** Why a match ended, read back from its stored reason. Lives decide every ending except a resignation or a forfeit. */
+export type EndKind = "core" | "both-fell" | "round-limit" | "resigned" | "forfeit";
+
+export function endKind(reason: string | null): EndKind | null {
+  if (!reason) return null;
+  if (reason.startsWith("Resigned")) return "resigned";
+  if (reason.startsWith("Forfeit")) return "forfeit";
+  if (reason.startsWith("Both cores")) return "both-fell";
+  return reason.startsWith("Round limit") ? "round-limit" : "core";
+}
+
 export function forfeit(state: DuelState, loser: 0 | 1, reason: string): void {
   if (state.status === "finished") return;
   state.winner = loser === 0 ? 1 : 0;

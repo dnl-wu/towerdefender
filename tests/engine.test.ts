@@ -3,11 +3,11 @@ import { test } from "node:test";
 import { playBotMatch } from "../scripts/balance.ts";
 import { runBattle, type Tower } from "../src/engine/battle.ts";
 import { RULES, UNITS, lootFor, scannerPrice, sendCap } from "../src/engine/data.ts";
-import { applyAction, commit, createDuel, replayDuel, resolveRound } from "../src/engine/duel.ts";
+import { applyAction, commit, createDuel, endKind, forfeit, replayDuel, resolveRound } from "../src/engine/duel.ts";
 import { readMatchLog, writeMatchLog } from "../src/engine/match-log.ts";
 import { generateMap, isBuildable } from "../src/engine/map.ts";
 import { scoutView, stateView } from "../src/engine/view.ts";
-import { roundReport } from "../src/engine/report.ts";
+import { debrief, roundReport } from "../src/engine/report.ts";
 import { baseWave } from "../src/engine/waves.ts";
 
 const tower = (over: Partial<Tower>): Tower => ({
@@ -357,4 +357,33 @@ test("the watched player's log follows planning orders, core hits and settled go
   assert.ok(live.activity[0].filter(e => e.kind === "dealt").every(e => e.label.includes("Kobold")));
   replay.restart();
   assert.deepEqual(replay.activity[0].map(e => e.amount), [-20, -scannerPrice(1)]);
+});
+
+test("the debrief splits lost lives between the neutral wave and the opponent's sends", () => {
+  const s = createDuel(7);
+  assert.ok(applyAction(s, 1, { type: "send", unit: "kobold" }).ok);
+  commit(s, 0); commit(s, 1);
+  const rec = resolveRound(s);
+  const { livesLostBy } = debrief(s, 0);
+  const sent = livesLostBy.find((e) => e.unit === "kobold" && e.fromSends);
+  const neutral = livesLostBy.filter((e) => !e.fromSends);
+  assert.equal(sent?.lives, UNITS.kobold.send.count, "an undefended lane leaks every kobold sent at it");
+  assert.equal(sent!.lives, rec.sides[0].battle.leakedLives.send);
+  assert.equal(neutral.reduce((n, e) => n + e.lives, 0), rec.sides[0].battle.leakedLives.base);
+  assert.equal(livesLostBy.reduce((n, e) => n + e.lives, 0), RULES.startLives - s.lanes[0].lives);
+});
+
+test("every way a match can end is told apart", () => {
+  const ended = (setup: (s: ReturnType<typeof createDuel>) => void) => {
+    const s = createDuel(3);
+    setup(s);
+    return endKind(s.endReason);
+  };
+  const fight = (s: ReturnType<typeof createDuel>) => { commit(s, 0); commit(s, 1); resolveRound(s); };
+  assert.equal(endKind(null), null);
+  assert.equal(ended((s) => { s.lanes[0].lives = 1; s.lanes[1].lives = 999; fight(s); }), "core");
+  assert.equal(ended((s) => { s.lanes[0].lives = 1; s.lanes[1].lives = 1; fight(s); }), "both-fell");
+  assert.equal(ended((s) => { s.lanes[0].lives = 999; s.lanes[1].lives = 999; s.round = RULES.maxRounds; fight(s); }), "round-limit");
+  assert.equal(ended((s) => forfeit(s, 0, "Resigned.")), "resigned");
+  assert.equal(ended((s) => forfeit(s, 0, "Forfeit: 3 turns in a row expired with no actions.")), "forfeit");
 });

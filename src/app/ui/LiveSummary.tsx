@@ -2,6 +2,7 @@
 // A live match for someone who is not playing in it: public facts only. Both
 // boards stay hidden until the match ends, then this page becomes the replay.
 import { useEffect, useState } from "react";
+import { RULES } from "@/engine/data";
 import type { MatchSummary, MatchView } from "@/viewer/feed";
 
 export function LiveSummary({ initial }: { initial: MatchSummary }) {
@@ -19,7 +20,7 @@ export function LiveSummary({ initial }: { initial: MatchSummary }) {
     }, 3000);
     return () => clearInterval(id);
   }, [m.id]);
-  const last = m.lives[m.lives.length - 1] ?? [20, 20];
+  const last = m.lives[m.lives.length - 1] ?? [RULES.startLives, RULES.startLives];
   return (
     <section className="instrument mx-auto mt-10 max-w-[480px] p-5 text-center">
       <p className="text-[12px] text-sand">{m.mode === "ranked" ? "Ranked" : "Practice"} · live · round {m.resolvedRounds + 1}</p>

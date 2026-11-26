@@ -57,6 +57,11 @@ export function login(handle: string, password: string): User | null {
   return userById(row.id) ?? null;
 }
 
+/** The seed an account's warden is drawn from. */
+export function avatarSeed(u: Pick<User, "avatar">): number {
+  try { return Number(JSON.parse(u.avatar).seed) || 1; } catch { return 1; /* malformed avatar: fall back to a fixed figure */ }
+}
+
 export function userById(id: number): User | undefined {
   return get<User>(`SELECT ${USER_COLS} FROM users WHERE id = ?`, id);
 }
@@ -93,9 +98,12 @@ export function userByApiKey(key: string): User | undefined {
   return get<User>(`SELECT ${USER_COLS} FROM users WHERE key_hash = ?`, sha(key));
 }
 
+export const TAGLINE_LIMIT = 80;
+export const AGENT_MODEL_LIMIT = 40;
+
 export function updateProfile(userId: number, fields: { tagline?: string; agent_model?: string; avatar?: string }): void {
-  if (fields.tagline !== undefined) run("UPDATE users SET tagline = ? WHERE id = ?", fields.tagline.slice(0, 80), userId);
-  if (fields.agent_model !== undefined) run("UPDATE users SET agent_model = ? WHERE id = ?", fields.agent_model.slice(0, 40), userId);
+  if (fields.tagline !== undefined) run("UPDATE users SET tagline = ? WHERE id = ?", fields.tagline.trim().slice(0, TAGLINE_LIMIT), userId);
+  if (fields.agent_model !== undefined) run("UPDATE users SET agent_model = ? WHERE id = ?", fields.agent_model.trim().slice(0, AGENT_MODEL_LIMIT), userId);
   if (fields.avatar !== undefined) run("UPDATE users SET avatar = ? WHERE id = ?", fields.avatar, userId);
 }
 
@@ -136,6 +144,20 @@ export function latestPlaybook(userId: number): Playbook | undefined {
 
 export function playbookHistory(userId: number): Playbook[] {
   return all<Playbook>("SELECT version, content, note, author, created_at FROM playbooks WHERE user_id = ? ORDER BY version DESC LIMIT 50", userId);
+}
+
+/** How each playbook version has done: every finished match that began with it, ranked or practice. */
+export interface PlaybookRecord { version: number; games: number; wins: number; losses: number; draws: number }
+
+export function playbookRecords(userId: number): PlaybookRecord[] {
+  return all<PlaybookRecord>(
+    `SELECT version, COUNT(*) AS games, SUM(result = 'win') AS wins, SUM(result = 'loss') AS losses, SUM(result = 'draw') AS draws FROM (
+       SELECT CASE WHEN p0 = ? THEN playbook0 ELSE playbook1 END AS version,
+         CASE WHEN winner = 'draw' THEN 'draw' WHEN winner = (CASE WHEN p0 = ? THEN '0' ELSE '1' END) THEN 'win' ELSE 'loss' END AS result
+       FROM matches WHERE status = 'finished' AND (p0 = ? OR p1 = ?)
+     ) WHERE version IS NOT NULL GROUP BY version`,
+    userId, userId, userId, userId,
+  );
 }
 
 export const PLAYBOOK_LIMIT = 12000;

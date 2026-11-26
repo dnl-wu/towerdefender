@@ -22,8 +22,10 @@ export const CLOCK = {
   ranked: () => env("TD_TURN_MS", 90_000),
   practice: () => env("TD_PRACTICE_TURN_MS", 300_000),
   firstRoundBonus: () => env("TD_FIRST_ROUND_BONUS_MS", 90_000),
-  /** How long a ranked search waits for a human before a house bot steps in. */
+  /** How long a ranked search waits for a human before a house bot steps in, unless the player asks for longer. */
   queueWait: () => env("TD_QUEUE_MS", 10_000),
+  /** The longest a player may ask to wait. A search is one tool call, so it has to end well inside the request limit. */
+  maxQueueWait: 45_000,
   /** Expired turns in a row, with no actions taken, before a forfeit. */
   maxMisses: 3,
 };
@@ -290,6 +292,8 @@ export interface FindOptions {
   opponent?: string;
   /** Practice only: replay a specific map and wave schedule. */
   seed?: number;
+  /** Ranked only: how long to hold out for another player, in ms. Defaults to the arena's queue wait. */
+  waitMs?: number;
 }
 
 /** Find or resume a match. Ranked waits briefly for a human near the player's rating, then falls back to a house bot. */
@@ -328,7 +332,7 @@ export async function findMatch(user: User, opts: FindOptions): Promise<{ match:
     if (i < 0) return;
     a.queue.splice(i, 1);
     resolveEntry(create("ranked", user, nearestBot(user.rating)));
-  }, CLOCK.queueWait());
+  }, Math.min(CLOCK.maxQueueWait, Math.max(0, opts.waitMs ?? CLOCK.queueWait())));
   try { return { match: await waiting, resumed: false }; }
   finally { clearTimeout(timer); }
 }

@@ -42,6 +42,8 @@ export interface Feed {
   /** In a lane view, the opponent's half of each round holds only the raiders they sent at you. */
   log: [Action[], Action[]][];
   winner: 0 | 1 | "draw" | null;
+  /** Signed core lives when the match ended, in original seat order. */
+  finalLives?: [number, number];
   endReason: string | null;
   createdAt: number;
   finishedAt: number | null;

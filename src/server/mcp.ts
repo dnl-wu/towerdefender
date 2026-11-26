@@ -10,10 +10,10 @@ import { rulesHandbook } from "../engine/rules.ts";
 import { mapView, scoutView, stateView } from "../engine/view.ts";
 import { PLAYBOOK_LIMIT, latestPlaybook, leaderboard, savePlaybook, userById, type User } from "./accounts.ts";
 import {
-  activeMatch, countCall, findMatch, recentlyFinished, matchDebrief, matchRow, playerIndex, recentMatches, resign, submit, waitForRound,
+  CLOCK, activeMatch, countCall, findMatch, recentlyFinished, matchDebrief, matchRow, playerIndex, recentMatches, resign, submit, waitForRound,
   type LiveMatch,
 } from "./arena.ts";
-import { PLACEMENT_GAMES, rankFor } from "./rating.ts";
+import { PLACEMENT_GAMES, rankFor, rankLabel } from "./rating.ts";
 
 const INSTRUCTIONS = `TOWERDEFENDER is a ranked tower-defence duel played by AI agents. You are the player.
 
@@ -108,7 +108,7 @@ export function buildMcpServer(user: User): McpServer {
 
   server.registerTool("save_playbook", {
     title: "Save your playbook",
-    description: `Replace your playbook with new content (max ${PLAYBOOK_LIMIT} characters). This creates a new version; results are tracked per version, so your operator can see whether a change helped. Keep what works, cut what does not.`,
+    description: `Replace your playbook with new content (max ${PLAYBOOK_LIMIT} characters). This creates a new version; results are tracked per version and shown to your operator on the website's Playbook page, so they can see whether a change helped. Keep what works, cut what does not.`,
     inputSchema: {
       content: z.string().describe("The full new playbook text. It replaces the old one."),
       note: z.string().optional().describe("One line on what changed and why."),
@@ -124,14 +124,15 @@ export function buildMcpServer(user: User): McpServer {
 
   server.registerTool("find_match", {
     title: "Find a match",
-    description: "Start a match, or resume the one you are already in. Ranked pairs you with a player near your rating (a house bot if nobody is queued) and moves your rating. Practice plays a house bot with a longer clock and no rating change. Returns the map and your opening state.",
+    description: "Start a match, or resume the one you are already in. Ranked pairs you with a player near your rating who is searching at the same time (a house bot if nobody turns up) and moves your rating. Practice plays a house bot with a longer clock and no rating change. Returns the map and your opening state.",
     inputSchema: {
       mode: z.enum(["ranked", "practice"]).describe("ranked or practice"),
       opponent: z.enum(["rustbucket", "patchwork", "foreman", "overseer", "tyrant"]).optional().describe("Practice only: which house bot, weakest to strongest. Defaults to the one nearest your rating."),
       seed: z.number().int().optional().describe("Practice only: replay a specific map and wave schedule to compare approaches."),
+      wait_seconds: z.number().int().min(0).max(CLOCK.maxQueueWait / 1000).optional().describe(`Ranked only: how long to hold out for another player before a house bot takes the seat. Default ${Math.round(CLOCK.queueWait() / 1000)}. Ask for the maximum when your operator has arranged to meet another player's agent.`),
     },
-  }, async ({ mode, opponent, seed }) => {
-    const { match: m, resumed } = await findMatch(userById(user.id)!, { mode, opponent, seed });
+  }, async ({ mode, opponent, seed, wait_seconds }) => {
+    const { match: m, resumed } = await findMatch(userById(user.id)!, { mode, opponent, seed, waitMs: wait_seconds === undefined ? undefined : wait_seconds * 1000 });
     const p = playerIndex(m, user.id)!;
     countCall(m, p);
     const opp = userById(m.users[1 - p])!;
@@ -252,7 +253,7 @@ export function buildMcpServer(user: User): McpServer {
 
   server.registerTool("get_leaderboard", {
     title: "Leaderboard", description: "The top of the ranked ladder.", annotations: { readOnlyHint: true },
-  }, async () => ok(leaderboard(25).map((u, i) => ({ place: i + 1, handle: u.handle, rating: Math.round(u.rating), rank: rankFor(u.rating).label, games: u.games, houseBot: u.bot_level !== null }))));
+  }, async () => ok(leaderboard(25).map((u, i) => ({ place: i + 1, handle: u.handle, rating: Math.round(u.rating), rank: rankLabel(u), games: u.games, houseBot: u.bot_level !== null }))));
 
   server.registerResource("rules", "towerdefender://rules", { title: "Rules handbook", mimeType: "text/markdown" }, async (uri) => ({
     contents: [{ uri: uri.href, mimeType: "text/markdown", text: rulesHandbook(activeMatch(user.id)?.state.map.rulesVersion) }],

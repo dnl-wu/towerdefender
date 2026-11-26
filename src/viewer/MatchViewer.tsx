@@ -3,15 +3,16 @@
 // around it, and one popover at a time for anyone curious about the machinery.
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { effectiveStats, type EffectiveStats, type Tower } from "../engine/battle.ts";
-import { RULES, TOWERS, UNITS, defenceResale, hpScale, lootFor, type TowerType, type UnitType } from "../engine/data.ts";
+import { RULES, TOWERS, UNITS, defenceResale, hpScale, lootFor, type TowerType } from "../engine/data.ts";
 import { unitVitals, type RulesVersion } from "../engine/match-log.ts";
 import { baseWave, summarizeWave, waveArchetype } from "../engine/waves.ts";
 import type { Feed, FeedPlayer, LaneInfo, MatchView } from "./feed.ts";
-import { UNIT_ART, towerModel, warden, type Mood } from "./models.ts";
-import { C } from "./palette.ts";
+import { UNIT_ART, type Mood } from "./models.ts";
+import { TowerIcon, UnitIcon } from "./PieceIcon.tsx";
 import { Playback, towerLabel, type ActivityEntry, type Hud } from "./playback.ts";
 import { Scene, type Hit } from "./scene.ts";
-import { LIGHTING, blank, outlined, project, renderSprite, type Lighting } from "./voxel.ts";
+import { drawWarden } from "./WardenAvatar.tsx";
+import { LIGHTING, type Lighting } from "./voxel.ts";
 
 
 type Open = "me" | "foe" | "round" | "econ" | "wave" | { tower: number } | null;
@@ -27,22 +28,6 @@ const moodStyle = {
   sad: "translate-y-px saturate-60 brightness-90",
 };
 const toneStyle = { good: "text-fern", bad: "text-terracotta", gold: "text-honey" };
-const iconCache = new Map<string, string>();
-function modelIcon(key: string, build: () => ReturnType<typeof towerModel>): string {
-  let url = iconCache.get(key);
-  if (!url) {
-    const sp = outlined(renderSprite(build(), 6, LIGHTING.golden), C.outline, 1), box = 96, cv = blank(box, box), k = cv.getContext("2d")!;
-    const f = Math.min((box * 0.84) / sp.cv.width, (box * 0.84) / sp.cv.height);
-    k.imageSmoothingQuality = "high";
-    k.drawImage(sp.cv, (box - sp.cv.width * f) / 2, (box - sp.cv.height * f) / 2, sp.cv.width * f, sp.cv.height * f);
-    url = cv.toDataURL();
-    iconCache.set(key, url);
-  }
-  return url;
-}
-const UnitIcon = ({ unit }: { unit: UnitType }) => <img className="block size-7 flex-none rounded-md bg-linear-to-b from-[#cfc1a4] to-[#b1a385] ring-1 ring-inset ring-charcoal/55" alt={UNITS[unit].name} src={modelIcon("u:" + unit, () => UNIT_ART[unit].model())} />;
-const TowerIcon = ({ type, level }: { type: TowerType; level: number }) => <img className="block size-7 flex-none rounded-md bg-linear-to-b from-[#cfc1a4] to-[#b1a385] ring-1 ring-inset ring-charcoal/55" alt="" src={modelIcon(`t:${type}:${level}`, () => towerModel(type, level))} />;
-
 /** The agent's warden. It blinks on its own; its mood comes from what is actually happening in the match. */
 function Portrait({ seed, mood, size = 36 }: { seed: number; mood: Exclude<Mood, "blink">; size?: number }) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -55,14 +40,7 @@ function Portrait({ seed, mood, size = 36 }: { seed: number; mood: Exclude<Mood,
   }, []);
   const shown: Mood = blink && mood !== "joy" ? "blink" : mood;
   useEffect(() => {
-    const cv = ref.current;
-    if (!cv) return;
-    const dpr = Math.min(2, window.devicePixelRatio || 1), s = (size / 12.5) * dpr, sp = renderSprite(warden(seed, shown), s, LIGHTING.golden), k = cv.getContext("2d")!;
-    cv.width = cv.height = size * dpr;
-    k.clearRect(0, 0, cv.width, cv.height);
-    // Framed on the face: the head's centre sits at the centre of the tile and the body runs off the bottom.
-    const [hx, hy] = project(4, 4, 9.5, s);
-    k.drawImage(sp.cv, Math.round(cv.width / 2 - (sp.ox + hx)), Math.round(cv.height / 2 - (sp.oy + hy)));
+    if (ref.current) drawWarden(ref.current, seed, shown, size);
   }, [seed, shown, size]);
   return <canvas ref={ref} className={`row-span-1 row-start-1 block rounded-md bg-elevated sm:row-span-2 sm:row-start-1 ring-1 ring-inset ${mood === "focus" ? "" : "ring-bronze"} ${moodStyle[mood]}`} style={{ width: size, height: size }} aria-hidden />;
 }
@@ -406,7 +384,7 @@ function AgentPop({ p, idx, hud, pb, feed, now, friend, onWatch }: { p: FeedPlay
       <header><Portrait seed={p.avatarSeed} mood={hud.mood[idx]} size={48} /><div><b>@{p.handle}</b><span>{p.rank} · {Math.round(p.rating)}{p.houseBot ? " · house bot" : ""}</span></div></header>
       {p.tagline && <p className="text-sand">{p.tagline}</p>}
       <Section title="Agent">
-        <Row k="Record" v={`${p.wins}–${p.losses}${p.draws ? `–${p.draws}` : ""}`} />
+        <Row k="Ranked record" v={`${p.wins} W · ${p.losses} L · ${p.draws} D`} />
         {p.streak !== 0 && <Row k="Streak" v={p.streak > 0 ? `${p.streak} won` : `${-p.streak} lost`} tone={p.streak > 0 ? "good" : undefined} />}
         <Row k="Peak rating" v={Math.round(p.peak)} />
         <Row k="Strategy" v={p.houseBot ? "Built-in heuristics" : p.playbookVersion ? `Playbook v${p.playbookVersion}` : "No playbook saved"} />

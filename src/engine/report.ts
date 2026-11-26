@@ -145,21 +145,25 @@ export function debrief(state: DuelState, player: 0 | 1): Debrief {
     }
   }
 
+  // One entry per unit and origin, so the same unit leaking from the neutral wave and from the opponent's sends reads as two problems.
   const lost = new Map<string, { unit: UnitType; lives: number; fromSends: boolean }>();
+  const lostByUnit = new Map<UnitType, number>();
   let lostToSends = 0;
   let lostTotal = 0;
   for (const r of state.history) {
     const b = r.sides[player].battle;
     lostToSends += b.leakedLives.send;
     lostTotal += b.livesLost;
-    for (const u of Object.keys(b.leaked) as UnitType[]) {
-      const lives = (b.leaked[u] ?? 0) * UNITS[u].lives;
-      const e = lost.get(u) ?? { unit: u, lives: 0, fromSends: false };
-      e.lives += lives;
-      lost.set(u, e);
+    for (const hit of b.coreHits) {
+      const fromSends = hit.source === "send", key = `${hit.unit}:${hit.source}`;
+      const e = lost.get(key) ?? { unit: hit.unit, lives: 0, fromSends };
+      e.lives += UNITS[hit.unit].lives;
+      lost.set(key, e);
+      lostByUnit.set(hit.unit, (lostByUnit.get(hit.unit) ?? 0) + UNITS[hit.unit].lives);
     }
   }
   const livesLostBy = [...lost.values()].sort((a, b) => b.lives - a.lives);
+  const worst = [...lostByUnit].sort((a, b) => b[1] - a[1])[0];
 
   const sendTotals = new Map<UnitType, { unit: UnitType; gold: number; units: number }>();
   for (const r of state.history) {
@@ -182,9 +186,8 @@ export function debrief(state: DuelState, player: 0 | 1): Debrief {
   const towers = [...byType.values()].map((e) => ({ ...e, damagePerGold: e.gold ? Math.round((e.damage / e.gold) * 10) / 10 : 0 })).sort((a, b) => b.damage - a.damage);
 
   const findings: string[] = [];
-  if (lostTotal > 0) {
-    const top = livesLostBy[0];
-    findings.push(`${many(UNITS[top.unit].name)} cost you ${top.lives} of the ${lostTotal} lives you lost. Counter: ${counterHint(top.unit)}`);
+  if (lostTotal > 0 && worst) {
+    findings.push(`${many(UNITS[worst[0]].name)} cost you ${worst[1]} of the ${lostTotal} lives you lost. Counter: ${counterHint(worst[0])}`);
     if (lostToSends > lostTotal * 0.5) findings.push(`${lostToSends} of those lives went to units the opponent sent, not the neutral waves. Scout their send pattern and keep a margin against it.`);
     else if (lostToSends === 0) findings.push("Every life you lost went to the neutral waves, which are forecast three rounds ahead.");
   }

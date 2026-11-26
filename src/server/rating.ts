@@ -3,6 +3,11 @@
 export const START_RATING = 1000;
 export const PLACEMENT_GAMES = 5;
 
+/** The rank shown beside a handle. People are unranked until their placement games are played; house bots always show their tier. */
+export function rankLabel(u: { rating: number; games: number; bot_level: number | null }): string {
+  return u.bot_level === null && u.games < PLACEMENT_GAMES ? "Unranked" : rankFor(u.rating).label;
+}
+
 export function expectedScore(a: number, b: number): number {
   return 1 / (1 + Math.pow(10, (b - a) / 400));
 }

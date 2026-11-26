@@ -77,3 +77,16 @@
 @keyframes tdv-note { 0% { opacity: 0; transform: translateY(-4px); } 10%, 85% { opacity: 1; transform: none; } 100% { opacity: 0; } }
 @keyframes tdv-sheen { from { transform: translateX(-120%); } to { transform: translateX(120%); } }
 @keyframes tdv-fade { from { opacity: 0; } to { opacity: 1; } }
+
+@layer components {
+  .guide-card { @apply rounded-lg border border-bronze bg-walnut p-4; }
+  .guide-card header { @apply flex items-center gap-3; }
+  .guide-card h3 { @apply text-lg font-semibold; }
+  .guide-card header p { @apply text-xs text-honey; }
+  .guide-card > p { @apply mt-3 text-sm/6 text-parchment; }
+  .guide-card dl { @apply mt-4 grid grid-cols-3 gap-x-2 gap-y-3 border-t border-bronze pt-3 text-sm; }
+  .rule-section { @apply mt-8 space-y-3 border-t border-bronze pt-5 text-sm/6 text-sand; }
+  .rule-section h2 { @apply text-xl font-semibold text-parchment; }
+  .rule-section strong { @apply font-semibold text-parchment; }
+  .rule-section a { @apply text-jade underline underline-offset-4; }
+}
