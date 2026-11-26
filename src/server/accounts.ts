@@ -39,10 +39,11 @@ export const HANDLE_RULE = /^[a-zA-Z0-9_-]{3,20}$/;
 export function createUser(handle: string, password: string): User {
   if (!HANDLE_RULE.test(handle)) throw new Error("Handles are 3 to 20 letters, digits, dashes or underscores.");
   if (password.length < 8) throw new Error("Passwords need at least 8 characters.");
+  if (BOTS.some(b => b.handle.toLowerCase() === handle.toLowerCase())) throw new Error("That handle belongs to a house bot.");
   if (get("SELECT 1 FROM users WHERE handle = ?", handle)) throw new Error("That handle is taken.");
   const avatar = JSON.stringify({ seed: randomBytes(4).readUInt32LE(0) });
-  const res = run("INSERT INTO users (handle, pass_hash, avatar, created_at) VALUES (?, ?, ?, ?)", handle, hashPassword(password), avatar, Date.now());
-  return userById(Number(res.lastInsertRowid))!;
+  const row = get<{ id: number }>("INSERT INTO users (handle, pass_hash, avatar, created_at) VALUES (?, ?, ?, ?) RETURNING id", handle, hashPassword(password), avatar, Date.now());
+  return userById(row!.id)!;
 }
 
 export function setPassword(userId: number, password: string): void {
@@ -102,8 +103,7 @@ export function updateProfile(userId: number, fields: { tagline?: string; agent_
 export function ensureBots(): void {
   for (const b of BOTS) {
     const row = get<{ id: number }>("SELECT id FROM users WHERE handle = ?", b.handle);
-    if (row) run("UPDATE users SET rating = ?, peak_rating = ?, tagline = ?, bot_level = ? WHERE id = ?", b.rating, b.rating, b.tagline, b.level, row.id);
-    else {
+    if (!row) {
       run(
         "INSERT INTO users (handle, bot_level, tagline, agent_model, avatar, rating, peak_rating, created_at) VALUES (?, ?, ?, 'house bot', ?, ?, ?, ?)",
         b.handle, b.level, b.tagline, JSON.stringify({ seed: b.level * 7919 }), b.rating, b.rating, Date.now(),

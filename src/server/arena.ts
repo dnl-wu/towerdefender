@@ -10,6 +10,7 @@ import {
 import { readMatchLog, writeMatchLog } from "../engine/match-log.ts";
 import { debrief, type Debrief } from "../engine/report.ts";
 import { bots, latestPlaybook, userById, type User } from "./accounts.ts";
+import { durableHost } from "./host.ts";
 import { all, get, run } from "./db.ts";
 import { nextRating } from "./rating.ts";
 
@@ -39,16 +40,17 @@ export interface LiveMatch {
   misses: [number, number];
   acted: [boolean, boolean];
   calls: [number, number];
-  /** When each player last made an MCP call. Not persisted: null after a restart until they call again. */
+  /** Each player's most recent MCP call, saved with the active turn. */
   lastCall: [number | null, number | null];
 }
 
 interface QueueEntry {
   user: User;
-  resolve: (m: LiveMatch | null) => void;
+  waiting: Promise<LiveMatch>;
+  resolve: (m: LiveMatch) => void;
 }
 
-interface Arena {
+export interface Arena {
   live: Map<string, LiveMatch>;
   queue: QueueEntry[];
   recovered: boolean;
@@ -56,12 +58,14 @@ interface Arena {
 
 const g = globalThis as unknown as { __tdArena?: Arena };
 function arena(): Arena {
-  g.__tdArena ??= { live: new Map(), queue: [], recovered: false };
-  if (!g.__tdArena.recovered) {
-    g.__tdArena.recovered = true;
-    recover(g.__tdArena);
+  const host = durableHost();
+  const fresh = (): Arena => ({ live: new Map(), queue: [], recovered: false });
+  const a = host ? (host.arena ??= fresh()) : (g.__tdArena ??= fresh());
+  if (!a.recovered) {
+    a.recovered = true;
+    recover(a);
   }
-  return g.__tdArena;
+  return a;
 }
 
 export interface MatchRow {
@@ -91,19 +95,32 @@ export interface MatchRow {
   finished_at: number | null;
 }
 
+function restoreMatch(row: MatchRow): LiveMatch {
+  const state = rebuild(row);
+  const users: [number, number] = [row.p0, row.p1];
+  const botLevels = users.map((id) => userById(id)?.bot_level ?? null) as [number | null, number | null];
+  return {
+    id: row.id, mode: row.mode, state, users, botLevels, deadline: 0, timer: null,
+    waiters: new Set(), misses: [0, 0], acted: [false, false], calls: [row.calls0, row.calls1], lastCall: [null, null],
+  };
+}
+
 function recover(a: Arena) {
   for (const row of all<MatchRow>("SELECT * FROM matches WHERE status = 'active'")) {
-    const state = rebuild(row);
-    const users: [number, number] = [row.p0, row.p1];
-    const botLevels = users.map((id) => userById(id)?.bot_level ?? null) as [number | null, number | null];
-    const m: LiveMatch = {
-      id: row.id, mode: row.mode, state, users, botLevels, deadline: 0, timer: null,
-      waiters: new Set(), misses: [0, 0], acted: [false, false], calls: [row.calls0, row.calls1], lastCall: [null, null],
-    };
+    const m = restoreMatch(row);
+    const { state, botLevels } = m;
     a.live.set(m.id, m);
-    // The bot's moves for the open round are already in the log; it only needs to end its turn again.
-    for (const p of [0, 1] as const) if (botLevels[p] !== null) commit(state, p);
-    armClock(m);
+    const clock = get<{ deadline: number; turn_state: string }>("SELECT deadline, turn_state FROM match_clocks WHERE match_id = ?", m.id);
+    if (clock) {
+      const saved = JSON.parse(clock.turn_state);
+      m.misses = saved.misses;
+      m.acted = saved.acted;
+      m.lastCall = saved.lastCall;
+      for (const p of [0, 1] as const) if (saved.committed[p]) commit(state, p);
+    } else {
+      for (const p of [0, 1] as const) if (botLevels[p] !== null) commit(state, p);
+    }
+    armClock(m, clock?.deadline);
   }
 }
 
@@ -113,6 +130,10 @@ function persist(m: LiveMatch) {
     "UPDATE matches SET log = ?, resolved_rounds = ?, lives0 = ?, lives1 = ?, calls0 = ?, calls1 = ? WHERE id = ?",
     writeMatchLog(s), s.history.length, s.lanes[0].lives, s.lanes[1].lives, m.calls[0], m.calls[1], m.id,
   );
+  if (s.status === "planning") {
+    const snapshot = { misses: m.misses, acted: m.acted, committed: s.lanes.map(l => l.committed), lastCall: m.lastCall };
+    run("INSERT OR REPLACE INTO match_clocks (match_id, deadline, turn_state) VALUES (?, ?, ?)", m.id, m.deadline, JSON.stringify(snapshot));
+  } else run("DELETE FROM match_clocks WHERE match_id = ?", m.id);
 }
 
 function turnLength(m: LiveMatch): number {
@@ -120,10 +141,26 @@ function turnLength(m: LiveMatch): number {
   return m.state.round === 1 ? base + CLOCK.firstRoundBonus() : base;
 }
 
-function armClock(m: LiveMatch) {
+function scheduleArenaAlarm() {
+  const host = durableHost();
+  if (!host) return;
+  let next = Infinity;
+  for (const m of arena().live.values()) if (m.state.status === "planning") next = Math.min(next, m.deadline);
+  host.schedule(Number.isFinite(next) ? next : null);
+}
+
+export function expireDueMatches(): void {
+  const now = Date.now();
+  for (const m of arena().live.values())
+    if (m.state.status === "planning" && m.deadline <= now) onDeadline(m);
+  scheduleArenaAlarm();
+}
+
+function armClock(m: LiveMatch, deadline = Date.now() + turnLength(m)) {
   if (m.timer) clearTimeout(m.timer);
-  m.deadline = Date.now() + turnLength(m);
-  m.timer = setTimeout(() => onDeadline(m), turnLength(m));
+  m.deadline = deadline;
+  if (durableHost()) { scheduleArenaAlarm(); return; }
+  m.timer = setTimeout(() => onDeadline(m), Math.max(0, deadline - Date.now()));
   // Never keep the process alive just for a turn clock.
   (m.timer as { unref?: () => void }).unref?.();
 }
@@ -200,9 +237,8 @@ function finish(m: LiveMatch) {
     JSON.stringify(debrief(s, 0)), JSON.stringify(debrief(s, 1)), m.id,
   );
   wake(m);
-  // Keep the finished match in memory briefly so late waiters and final reads are cheap.
-  const t = setTimeout(() => arena().live.delete(m.id), 60_000);
-  (t as { unref?: () => void }).unref?.();
+  arena().live.delete(m.id);
+  scheduleArenaAlarm();
 }
 
 function create(mode: Mode, a: User, b: User, seed?: number): LiveMatch {
@@ -231,6 +267,13 @@ export function liveMatch(id: string): LiveMatch | undefined {
   return arena().live.get(id);
 }
 
+export function recentlyFinished(userId: number): LiveMatch | undefined {
+  const row = recentMatches(userId, 1)[0];
+  if (row?.status === "finished" && row.finished_at && row.finished_at >= Date.now() - 60_000)
+    return restoreMatch(row);
+  return undefined;
+}
+
 export function playerIndex(m: LiveMatch, userId: number): 0 | 1 | null {
   return m.users[0] === userId ? 0 : m.users[1] === userId ? 1 : null;
 }
@@ -254,6 +297,13 @@ export async function findMatch(user: User, opts: FindOptions): Promise<{ match:
   const existing = activeMatch(user.id);
   if (existing) return { match: existing, resumed: true };
 
+  const a = arena();
+  const pending = a.queue.find(entry => entry.user.id === user.id);
+  if (pending) {
+    const match = await pending.waiting;
+    return { match, resumed: true };
+  }
+
   if (opts.mode === "practice") {
     const pool = bots();
     const wanted = opts.opponent?.toLowerCase();
@@ -261,7 +311,6 @@ export async function findMatch(user: User, opts: FindOptions): Promise<{ match:
     return { match: create("practice", user, bot, opts.seed), resumed: false };
   }
 
-  const a = arena();
   const idx = a.queue.findIndex((q) => q.user.id !== user.id && Math.abs(q.user.rating - user.rating) <= 300);
   if (idx >= 0) {
     const other = a.queue.splice(idx, 1)[0];
@@ -270,19 +319,18 @@ export async function findMatch(user: User, opts: FindOptions): Promise<{ match:
     return { match, resumed: false };
   }
 
-  const found = await new Promise<LiveMatch | null>((res) => {
-    const entry: QueueEntry = { user, resolve: res };
-    a.queue.push(entry);
-    setTimeout(() => {
-      const i = a.queue.indexOf(entry);
-      if (i >= 0) {
-        a.queue.splice(i, 1);
-        res(null);
-      }
-    }, CLOCK.queueWait());
-  });
-  if (found) return { match: found, resumed: false };
-  return { match: create("ranked", user, nearestBot(user.rating)), resumed: false };
+  let resolveEntry!: (m: LiveMatch) => void;
+  const waiting = new Promise<LiveMatch>(res => { resolveEntry = res; });
+  const entry: QueueEntry = { user, waiting, resolve: resolveEntry };
+  a.queue.push(entry);
+  const timer = setTimeout(() => {
+    const i = a.queue.indexOf(entry);
+    if (i < 0) return;
+    a.queue.splice(i, 1);
+    resolveEntry(create("ranked", user, nearestBot(user.rating)));
+  }, CLOCK.queueWait());
+  try { return { match: await waiting, resumed: false }; }
+  finally { clearTimeout(timer); }
 }
 
 export interface SubmitResult {

@@ -4,8 +4,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "next dev",
     "build": "next build",
+    "dev": "next dev",
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "node --test --experimental-strip-types 'tests/**/*.test.ts'",
@@ -15,10 +15,15 @@
     "standalone": "node --experimental-strip-types scripts/standalone.ts",
     "account": "node --experimental-strip-types scripts/account.ts",
     "solo": "node --experimental-strip-types scripts/solo.ts",
-    "goblins": "node --experimental-strip-types scripts/goblins.ts"
+    "goblins": "node --experimental-strip-types scripts/goblins.ts",
+    "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
+    "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",
+    "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.32.2",
+    "@opennextjs/cloudflare": "^1.20.18",
     "next": "^16.4.6",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
@@ -31,6 +36,7 @@
     "@types/react-dom": "^19.3.0",
     "postcss": "^8.5.33",
     "tailwindcss": "^4.3.5",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "wrangler": "^4.168.0"
   }
 }

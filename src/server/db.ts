@@ -1,6 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { DatabaseSync } from "node:sqlite";
+import type { DatabaseSync } from "node:sqlite";
+import { durableHost } from "./host.ts";
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS users (
@@ -58,6 +59,11 @@ CREATE TABLE IF NOT EXISTS matches (
   created_at INTEGER NOT NULL,
   finished_at INTEGER
 );
+CREATE TABLE IF NOT EXISTS match_clocks (
+  match_id TEXT PRIMARY KEY REFERENCES matches(id),
+  deadline INTEGER NOT NULL,
+  turn_state TEXT NOT NULL
+);
 CREATE INDEX IF NOT EXISTS matches_p0 ON matches(p0, created_at);
 CREATE INDEX IF NOT EXISTS matches_p1 ON matches(p1, created_at);
 CREATE INDEX IF NOT EXISTS matches_status ON matches(status);
@@ -65,10 +71,11 @@ CREATE INDEX IF NOT EXISTS matches_status ON matches(status);
 
 const g = globalThis as unknown as { __tdDb?: DatabaseSync };
 
-export function db(): DatabaseSync {
+function nodeDb(): DatabaseSync {
   if (!g.__tdDb) {
     const file = process.env.TD_DB ?? resolve(process.cwd(), "data/towerdefender.db");
     if (file !== ":memory:") mkdirSync(dirname(file), { recursive: true });
+    const { DatabaseSync } = process.getBuiltinModule("node:sqlite") as typeof import("node:sqlite");
     const conn = new DatabaseSync(file);
     conn.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 4000;");
     conn.exec(SCHEMA);
@@ -79,14 +86,27 @@ export function db(): DatabaseSync {
 
 type Param = string | number | bigint | null;
 
+function cloudSql() {
+  const host = durableHost();
+  if (host && !host.initialized) {
+    host.sql.exec(SCHEMA);
+    host.initialized = true;
+  }
+  return host?.sql;
+}
+
 export function all<T>(sql: string, ...params: Param[]): T[] {
-  return db().prepare(sql).all(...params) as T[];
+  const storage = cloudSql();
+  return (storage ? storage.exec(sql, ...params).toArray() : nodeDb().prepare(sql).all(...params)) as T[];
 }
 
 export function get<T>(sql: string, ...params: Param[]): T | undefined {
-  return db().prepare(sql).get(...params) as T | undefined;
+  const storage = cloudSql();
+  return (storage ? storage.exec(sql, ...params).toArray()[0] : nodeDb().prepare(sql).get(...params)) as T | undefined;
 }
 
-export function run(sql: string, ...params: Param[]) {
-  return db().prepare(sql).run(...params);
+export function run(sql: string, ...params: Param[]): void {
+  const storage = cloudSql();
+  if (storage) storage.exec(sql, ...params);
+  else nodeDb().prepare(sql).run(...params);
 }

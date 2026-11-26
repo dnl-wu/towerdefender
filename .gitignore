@@ -5,3 +5,11 @@ data/
 *.tsbuildinfo
 .env*.local
 /design/spectator.html
+
+# OpenNext
+.open-next
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example

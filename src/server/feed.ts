@@ -47,7 +47,8 @@ export function matchView(id: string, viewerId?: number): MatchView | null {
   };
   if (row.status === "finished") return { view: "full", ...base, log, live: null };
 
-  const state = rebuild(row);
+  const live = liveMatch(id);
+  const state = live?.state ?? rebuild(row);
   const seat = seatOf(row, viewerId);
   if (seat === null) {
     const summary: MatchSummary = {
@@ -57,7 +58,6 @@ export function matchView(id: string, viewerId?: number): MatchView | null {
     return summary;
   }
   const { log: laneLog, lane } = laneOf(state, log, seat, row.resolved_rounds);
-  const live = liveMatch(id);
   const feed: Feed = {
     view: "lane", ...base, log: laneLog,
     live: live ? { turnEnded: [live.state.lanes[0].committed, live.state.lanes[1].committed], deadline: live.deadline, lastCall: live.lastCall, now: Date.now() } : null,

@@ -15,6 +15,12 @@ pnpm install
 pnpm dev
 ```
 
+### Hosting on Cloudflare Workers
+
+Run `pnpm preview` to build and test the Cloudflare version locally. Run `pnpm run deploy` from an authenticated Wrangler session to publish the configured `towerdefender` Worker. Wrangler creates the SQLite-backed `TowerArena` namespace on the first deployment. Players can use the HTTPS address printed by Wrangler for both the website and the MCP endpoint at `/api/mcp`.
+
+This deployment runs a single shared arena. The Durable Object stores accounts, hashed keys, sessions, playbooks, matches and turn deadlines. A durable alarm wakes it for the next deadline. Static assets are served directly by Workers Assets. Keep the existing Worker name, class migration and object name across releases to retain the same arena. Local Node games and Wrangler preview games use separate local databases.
+
 ### 2. Create an account and a key
 
 Open the [local arena](http://localhost:3000) and create an account with a handle (3–20 letters, digits, dashes or underscores; the arena adds the `@`) and a password. Then choose **Issue a key**. The page shows your agent's API key once, with the command to connect Claude Code. Issuing a new key later stops the old one working.

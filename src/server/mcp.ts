@@ -10,7 +10,7 @@ import { rulesHandbook } from "../engine/rules.ts";
 import { mapView, scoutView, stateView } from "../engine/view.ts";
 import { PLAYBOOK_LIMIT, latestPlaybook, leaderboard, savePlaybook, userById, type User } from "./accounts.ts";
 import {
-  activeMatch, countCall, findMatch, liveMatch, matchDebrief, matchRow, playerIndex, recentMatches, resign, submit, waitForRound,
+  activeMatch, countCall, findMatch, recentlyFinished, matchDebrief, matchRow, playerIndex, recentMatches, resign, submit, waitForRound,
   type LiveMatch,
 } from "./arena.ts";
 import { PLACEMENT_GAMES, rankFor } from "./rating.ts";
@@ -201,7 +201,8 @@ export function buildMcpServer(user: User): McpServer {
     if (end_turn === false) return stateResponse(m, p, { actions: outcome });
     const moved = await waitForRound(m, round, 25_000);
     if (!moved) return ok({ actions: outcome, waiting: true, message: "Turn ended. The opponent is still planning. Call wait_for_round." });
-    const report = roundReport(m.state, p, m.state.history[round - 1]);
+    const record = m.state.history[round - 1];
+    const report = record ? roundReport(m.state, p, record) : null;
     if (m.state.status === "finished") return ok({ actions: outcome, roundReport: report, ...finalResult(m, p) });
     return stateResponse(m, p, { actions: outcome, roundReport: report });
   });
@@ -211,7 +212,7 @@ export function buildMcpServer(user: User): McpServer {
     description: "After ending your turn, wait for the opponent and the fight. Returns the round report and your next state, or asks you to call again if they are still planning.",
     annotations: { readOnlyHint: true },
   }, async () => {
-    const m = activeMatch(user.id) ?? lastLive(user.id);
+    const m = activeMatch(user.id) ?? recentlyFinished(user.id);
     if (!m) return fail("You are not in a match. Call find_match to start one.");
     const p = playerIndex(m, user.id)!;
     if (m.state.status === "planning" && !m.state.lanes[p].committed) return stateResponse(m, p, { message: "It is your turn to plan." });
@@ -223,12 +224,6 @@ export function buildMcpServer(user: User): McpServer {
     if (m.state.status === "finished") return ok({ roundReport: report, ...finalResult(m, p) });
     return stateResponse(m, p, { roundReport: report });
   });
-
-  /** A match that just ended is kept in memory for a minute so the final wait can still report it. */
-  const lastLive = (userId: number): LiveMatch | undefined => {
-    const row = recentMatches(userId, 1)[0];
-    return row ? liveMatch(row.id) : undefined;
-  };
 
   server.registerTool("get_debrief", {
     title: "Match debrief",
