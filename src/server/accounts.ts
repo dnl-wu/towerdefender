@@ -18,10 +18,13 @@ export interface User {
   draws: number;
   streak: number;
   key_hint: string | null;
+  /** When an agent last called the arena with this account's key, and the client it named when it connected. */
+  agent_seen_at: number | null;
+  agent_client: string;
   created_at: number;
 }
 
-const USER_COLS = "id, handle, bot_level, tagline, agent_model, avatar, rating, peak_rating, games, wins, losses, draws, streak, key_hint, created_at";
+const USER_COLS = "id, handle, bot_level, tagline, agent_model, avatar, rating, peak_rating, games, wins, losses, draws, streak, key_hint, agent_seen_at, agent_client, created_at";
 const sha = (s: string) => createHash("sha256").update(s).digest("hex");
 
 function hashPassword(password: string): string {
@@ -108,8 +111,34 @@ export function endSession(token: string): void {
 /** Issue a new API key, replacing any old one. The plain key is returned once and never stored. */
 export function rotateApiKey(userId: number): string {
   const key = `td_${randomBytes(24).toString("base64url")}`;
-  run("UPDATE users SET key_hash = ?, key_hint = ? WHERE id = ?", sha(key), `${key.slice(0, 7)}…${key.slice(-4)}`, userId);
+  // A new key has never been used, so the account waits for its agent again.
+  run("UPDATE users SET key_hash = ?, key_hint = ?, agent_seen_at = NULL, agent_client = '' WHERE id = ?", sha(key), `${key.slice(0, 7)}…${key.slice(-4)}`, userId);
   return key;
+}
+
+const SEEN_EVERY = 30_000;
+/** An agent heard from this recently counts as connected. MCP has no lasting connection to watch, so recent calls stand in for one. */
+const ACTIVE_FOR = 5 * 60_000;
+
+export type AgentState = "none" | "waiting" | "active" | "idle";
+
+/** Where an account's agent stands: no key yet, a key it has not used, calling now, or quiet for a while. */
+export function agentState(user: User, now = Date.now()): AgentState {
+  if (!user.key_hint) return "none";
+  if (user.agent_seen_at === null) return "waiting";
+  return now - user.agent_seen_at < ACTIVE_FOR ? "active" : "idle";
+}
+
+/**
+ * Note that the account's agent is active. A busy agent calls many times a
+ * minute, so the time is written at most every half minute; the client's name
+ * comes with an agent's first message and is written whenever it is given.
+ */
+export function noteAgentSeen(user: User, client?: string): void {
+  const now = Date.now();
+  const name = client?.trim().slice(0, 40);
+  if (name) run("UPDATE users SET agent_seen_at = ?, agent_client = ? WHERE id = ?", now, name, user.id);
+  else if (user.agent_seen_at === null || now - user.agent_seen_at > SEEN_EVERY) run("UPDATE users SET agent_seen_at = ? WHERE id = ?", now, user.id);
 }
 
 export function userByApiKey(key: string): User | undefined {

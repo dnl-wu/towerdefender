@@ -4,7 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { RULES, TARGETINGS, TOWER_TYPES, UNIT_TYPES, scannerPrice } from "../engine/data.ts";
 import { towerAliases, unitAliases } from "../engine/match-log.ts";
-import type { Action } from "../engine/duel.ts";
+import { SPEECH_LIMIT, type Action } from "../engine/duel.ts";
 import { roundReport } from "../engine/report.ts";
 import { rulesHandbook } from "../engine/rules.ts";
 import { mapView, scoutView, stateView } from "../engine/view.ts";
@@ -21,7 +21,7 @@ Loop:
 1. get_playbook — notes from your operator and from your past matches. Read them first.
 2. get_rules — once per session. Every number in the game is in there.
 3. find_match — starts or resumes a match and returns the map and your opening state.
-4. Each round: decide, then call take_turn with all your actions in one call. It ends your turn, waits for the round to resolve and returns a report plus your new state. Their board, gold and income are hidden (fog of war): scout_opponent lists what your raiders and Scanners have revealed, and deploy_scanner buys a full look at their base as this round opened, leaving your turn open. From round 3, {"type":"drums"} (War Drums) drives every enemy in their lane faster for one round, in place of raiders.
+4. Each round: decide, then call take_turn with all your actions in one call. It ends your turn, waits for the round to resolve and returns a report plus your new state. Their board, gold and income are hidden (fog of war): scout_opponent lists what your raiders and Scanners have revealed, and deploy_scanner buys a full look at their base as this round opened, leaving your turn open. From round 3, {"type":"drums"} (War Drums) drives every enemy in their lane faster for one round, in place of raiders. You can also say one line a round with {"type":"say","text":"..."}: it appears over your portrait for everyone watching, and the opponent reads it in their next report. Be yourself.
 5. When the match ends, read get_debrief and save what you learned with save_playbook.
 
 Planning is on a clock. Batch your actions; do not spend a call per tower.`;
@@ -40,6 +40,8 @@ const actionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("target"), id: z.number().int(), mode: z.enum(TARGETINGS as [string, ...string[]]) }),
   z.object({ type: z.literal("send"), unit: z.enum([...UNIT_TYPES, ...Object.keys(unitAliases)] as [string, ...string[]]), orders: z.number().int().min(1).optional().describe("Number of orders, default 1.") }),
   z.object({ type: z.literal("drums") }).describe("War Drums: every enemy in the opponent's lane moves faster this round. Uses send cap, no income. Once a round."),
+  z.object({ type: z.literal("say"), text: z.string().describe(`Up to ${SPEECH_LIMIT} characters.`) })
+    .describe("Say a line out loud. Everyone watching sees it in a speech bubble; the opponent reads it after the round. Costs nothing and changes nothing. Once a round."),
 ]);
 
 function clock(m: LiveMatch) {
@@ -189,7 +191,7 @@ export function buildMcpServer(user: User): McpServer {
 
   server.registerTool("take_turn", {
     title: "Take your turn",
-    description: "Apply a list of actions in order (build, upgrade, sell, target, send, drums), then end your turn. Selling a tower returns 70% of everything spent on it, rounded down; the quote is resaleGold in your tower list. Each action reports success or a reason for rejection; rejected actions cost nothing. When both players have ended their turn the round is fought, and this returns the round report and your next state. Set end_turn to false to apply actions and keep planning.",
+    description: "Apply a list of actions in order (build, upgrade, sell, target, send, drums, say), then end your turn. Selling a tower returns 70% of everything spent on it, rounded down; the quote is resaleGold in your tower list. Each action reports success or a reason for rejection; rejected actions cost nothing. When both players have ended their turn the round is fought, and this returns the round report and your next state. Set end_turn to false to apply actions and keep planning.",
     inputSchema: {
       actions: z.array(actionSchema).max(60).describe("Applied in order. May be empty."),
       end_turn: z.boolean().optional().describe("Default true."),

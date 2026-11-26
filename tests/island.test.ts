@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { DEFAULT_STYLE, lockedChoice, readStyle, styleSwaps } from "../src/viewer/island-style.ts";
+import { DEFAULT_STYLE, readStyle, styleSwaps } from "../src/viewer/island-style.ts";
 import { C } from "../src/viewer/palette.ts";
 
 test("an island style keeps only known choices, and falls back to the defaults", () => {
@@ -9,13 +9,6 @@ test("an island style keeps only known choices, and falls back to the defaults",
   assert.equal(readStyle(null, 7).shape, 7);
   assert.equal(readStyle({ shape: -3 }, 7).shape, 7);
   assert.equal(readStyle({ shape: 1.5 }, 7).shape, 7);
-});
-
-test("rank-locked choices open at their tier's floor", () => {
-  const sapphire = readStyle({ crystal: "sapphire" }, 1);
-  assert.deepEqual(lockedChoice(sapphire, 1199), { group: "Core crystal", name: "Sapphire", tier: "Chrome" });
-  assert.equal(lockedChoice(sapphire, 1200), null);
-  assert.equal(lockedChoice(readStyle({}, 1), 0), null, "the default island is open to everyone");
 });
 
 test("a style never recolours anything that carries meaning on the map", () => {

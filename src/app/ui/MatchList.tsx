@@ -1,17 +1,9 @@
 import Link from "next/link";
 import type { MatchListing } from "@/server/feed";
 import { scoreLine } from "./score";
+import { ago } from "./time";
 
 const TONES = { Win: "text-fern", Loss: "text-terracotta", Draw: "text-honey", Live: "text-jade" } as const;
-
-function ago(at: number): string {
-  const minutes = Math.max(0, Math.round((Date.now() - at) / 60_000));
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  if (minutes < 60 * 24) return `${Math.round(minutes / 60)}h ago`;
-  if (minutes < 60 * 24 * 30) return `${Math.round(minutes / 1440)}d ago`;
-  return new Date(at).toLocaleDateString("en", { month: "short", day: "numeric", year: "numeric" });
-}
 
 /**
  * Matches, newest first. With a `perspective` handle the list reads from that

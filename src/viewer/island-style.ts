@@ -2,8 +2,7 @@
 // and everything that carries meaning on it (the road, high ground, power
 // tiles, water), always comes from the match and looks the same for everyone.
 // A style only recolours the turf, the cut stone, the plinth and the core's
-// crystal. Some choices unlock as a player's peak rating climbs the ladder.
-import { TIERS } from "../server/rating.ts";
+// crystal. Every choice is open to every player.
 import { C } from "./palette.ts";
 import type { Lighting } from "./voxel.ts";
 
@@ -18,7 +17,7 @@ export interface IslandStyle {
   light: Lighting["key"];
 }
 
-interface Choice { name: string; /** Tier key whose floor the player's peak rating must reach. */ unlock?: string; swatch: string }
+interface Choice { name: string; swatch: string }
 
 type Swaps = Partial<Record<keyof typeof C, string>>;
 
@@ -29,11 +28,11 @@ export const TURFS = {
     swaps: { moss: "#9a7440", moss2: "#a8823f", moss3: "#8a6236", olive: "#c49a4a", earth: "#7a5a3e", earth2: "#6a4c34", forest: "#9c4a2c", forest2: "#b8642e" },
   },
   heather: {
-    name: "Heather", unlock: "iron", swatch: "#7c6680",
+    name: "Heather", swatch: "#7c6680",
     swaps: { moss: "#6f5a72", moss2: "#7c6680", moss3: "#5f4d63", olive: "#a184a6", earth: "#6e5a4a", earth2: "#5f4d40", forest: "#4a3a52", forest2: "#5d4866" },
   },
   frost: {
-    name: "Frost", unlock: "neon", swatch: "#dde6ea",
+    name: "Frost", swatch: "#dde6ea",
     swaps: { moss: "#cfdadf", moss2: "#dde6ea", moss3: "#bccbd2", olive: "#eef3f5", earth: "#9aa7ad", earth2: "#8a979e", forest: "#3f5a5a", forest2: "#4d6b69" },
   },
 } satisfies Record<string, Choice & { swaps: Swaps }>;
@@ -45,11 +44,11 @@ export const STONES = {
     swaps: { stone: "#b08a5e", stone2: "#9c774f", slate: "#8c6a48", slate2: "#7b5c3f", deep: "#5e4630", clayBand: "#c0784a" },
   },
   basalt: {
-    name: "Basalt", unlock: "chrome", swatch: "#3f3c3a",
+    name: "Basalt", swatch: "#3f3c3a",
     swaps: { stone: "#4a4744", stone2: "#3f3c3a", slate: "#33312f", slate2: "#2b2928", deep: "#1f1d1c", clayBand: "#8a4430" },
   },
   marble: {
-    name: "Marble", unlock: "plasma", swatch: "#d9d4ca",
+    name: "Marble", swatch: "#d9d4ca",
     swaps: { stone: "#d9d4ca", stone2: "#c9c2b5", slate: "#bdb4a6", slate2: "#aaa092", deep: "#8f8678", clayBand: "#b9a27a" },
   },
 } satisfies Record<string, Choice & { swaps: Swaps }>;
@@ -63,9 +62,9 @@ export const PLINTHS = {
 export const CRYSTALS = {
   jade: { name: "Jade", swatch: C.jade, colour: C.jade, light: "#dff5ee" },
   amethyst: { name: "Amethyst", swatch: "#9b7fd0", colour: "#9b7fd0", light: "#ebe0fb" },
-  ember: { name: "Ember", unlock: "iron", swatch: "#e0704f", colour: "#e0704f", light: "#ffe0cf" },
-  sapphire: { name: "Sapphire", unlock: "chrome", swatch: "#4f86d9", colour: "#4f86d9", light: "#dbe8ff" },
-  gold: { name: "Gold", unlock: "apex", swatch: "#e8b86d", colour: "#e8b86d", light: "#fff3d1" },
+  ember: { name: "Ember", swatch: "#e0704f", colour: "#e0704f", light: "#ffe0cf" },
+  sapphire: { name: "Sapphire", swatch: "#4f86d9", colour: "#4f86d9", light: "#dbe8ff" },
+  gold: { name: "Gold", swatch: "#e8b86d", colour: "#e8b86d", light: "#fff3d1" },
 } satisfies Record<string, Choice & { colour: string; light: string }>;
 
 export type TurfKey = keyof typeof TURFS;
@@ -85,15 +84,6 @@ export const OPTION_GROUPS = [
 
 export const DEFAULT_STYLE: Omit<IslandStyle, "shape"> = { turf: "meadow", stone: "slate", plinth: "walnut", crystal: "jade", light: "golden" };
 
-/** The rating a tier starts at, for an unlock. Undefined means free. */
-export function unlockRating(unlock: string | undefined): number | null {
-  return unlock ? TIERS.find((t) => t.key === unlock)?.floor ?? null : null;
-}
-
-export function tierName(unlock: string): string {
-  return TIERS.find((t) => t.key === unlock)?.name ?? unlock;
-}
-
 const pick = <T extends Record<string, unknown>>(options: T, value: unknown, fallback: keyof T): keyof T =>
   typeof value === "string" && Object.hasOwn(options, value) ? value : fallback;
 
@@ -109,16 +99,6 @@ export function readStyle(raw: unknown, fallbackShape: number): IslandStyle {
     crystal: pick(CRYSTALS, r.crystal, DEFAULT_STYLE.crystal),
     light: LIGHTS.includes(r.light as Lighting["key"]) ? (r.light as Lighting["key"]) : DEFAULT_STYLE.light,
   };
-}
-
-/** The first choice in a style that a player's peak rating has not unlocked, if any. */
-export function lockedChoice(style: IslandStyle, peak: number): { group: string; name: string; tier: string } | null {
-  for (const g of OPTION_GROUPS) {
-    const choice = (g.options as Record<string, Choice>)[style[g.key]];
-    const floor = unlockRating(choice.unlock);
-    if (floor !== null && peak < floor) return { group: g.label, name: choice.name, tier: tierName(choice.unlock!) };
-  }
-  return null;
 }
 
 /** Colour replacements for the island's turf, stone and plinth. Road, terraces, water and power tiles are never in here. */

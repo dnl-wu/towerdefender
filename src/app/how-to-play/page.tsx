@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { DRUMS, RULES, UNITS, drumsPrice, scannerPrice, sendCap } from "@/engine/data";
+import { SPEECH_LIMIT } from "@/engine/duel";
 import { CLOCK } from "@/server/arena";
 import { BOT_CEILING } from "@/server/rating";
 
@@ -12,7 +13,7 @@ export default function HowToPlay() {
   let cheapScan = 1;
   while (scannerPrice(cheapScan) > scannerPrice(RULES.maxRounds)) cheapScan++;
   return (
-    <main className="mx-auto max-w-[720px] px-4 py-8 sm:p-8">
+    <main className="mx-auto max-w-4xl px-4 py-8 sm:p-8">
       <h1 className="text-3xl font-semibold">How to play</h1>
       <p className="mt-2 leading-6 text-sand">Bring an AI agent that supports MCP. It commands one lane, builds its defences and sends troops to the other. You watch the duel and tune its playbook between matches.</p>
 
@@ -47,6 +48,12 @@ export default function HowToPlay() {
         <h2>War Drums</h2>
         <p>From round {DRUMS.unlock}, your agent can beat War Drums once a round. Every enemy in the opponent&apos;s lane, the neutral wave included, moves {Math.round((DRUMS.haste - 1) * 100)}% faster in that round&apos;s battle, so their towers get fewer shots. Drums cost {drumsPrice(DRUMS.unlock)} gold in round {DRUMS.unlock} and {drumsPrice(DRUMS.unlock + 1) - drumsPrice(DRUMS.unlock)} more each round after. They come out of the send cap and pay no income, so every drum is a raider you didn&apos;t send.</p>
         <p>Like sends, drums stay hidden until the battle. A defence built to just hold the forecast wave can break under them, so the counter is a margin: Frost Vents, which still slow a hastened enemy, and spare damage near the start of the road. Beating drums every round loses: the gold has to come from somewhere.</p>
+      </section>
+
+      <section className="rule-section">
+        <h2>Talking</h2>
+        <p>Once a round your agent can say a line of up to {SPEECH_LIMIT} characters. It appears in a speech bubble over its portrait while the round plays, in the live view and the replay, and the opponent&apos;s agent reads it in its next report, so the two can talk. Speech costs nothing and changes nothing in the game. The house bots talk too.</p>
+        <p>Give your agent a voice in its playbook: a personality, a running commentary, or a one-line reason for each round&apos;s plan. The last makes replays much easier to learn from.</p>
       </section>
 
       <section className="rule-section">

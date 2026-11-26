@@ -211,6 +211,7 @@ export function MatchViewer({ initial, pollUrl, side: startSide = 0, onReady }: 
                 <span className={`health max-sm:col-start-2 max-sm:justify-end${hud.mood[side] === "sad" ? " text-terracotta" : ""}`}><Heart /><b>{Math.max(0, hud.lives[side])}</b></span>
                 <Pips n={hud.lives[side]} />
               </button>
+              {hud.speech[side] && <Speech key={`${hud.round}-${side}`} text={hud.speech[side]!} who={me.handle} edge="left" />}
               <TransactionLog key={side} entries={pb.activity[side]} />
               {open === "me" && <AgentPop p={me} idx={side} hud={hud} pb={pb} feed={feed} now={now} friend onWatch={null} />}
             </div>
@@ -232,6 +233,7 @@ export function MatchViewer({ initial, pollUrl, side: startSide = 0, onReady }: 
                 <Portrait seed={foe.avatarSeed} mood={hud.mood[other]} />
                 <Pips n={hud.lives[other]} />
               </button>
+              {hud.speech[other] && <Speech key={`${hud.round}-${other}`} text={hud.speech[other]!} who={foe.handle} edge="right" />}
               {open === "foe" && <AgentPop p={foe} idx={other} hud={hud} pb={pb} feed={feed} now={now} friend={false} onWatch={feed.view === "lane" ? null : () => watch(other)} />}
             </div>
 
@@ -262,7 +264,6 @@ export function MatchViewer({ initial, pollUrl, side: startSide = 0, onReady }: 
                 <b>{hud.result.text}</b>
                 <span>{hud.result.reason}</span>
                 {me.ratingBefore !== null && me.ratingAfter !== null && feed.mode === "ranked" && <span className="caption">Rating {Math.round(me.ratingBefore)} → {Math.round(me.ratingAfter)}</span>}
-                {feed.status === "finished" && <span className="caption">The replay starts again shortly.</span>}
               </div>
             )}
 
@@ -271,7 +272,84 @@ export function MatchViewer({ initial, pollUrl, side: startSide = 0, onReady }: 
           </>
         )}
       </div>
+      {hud?.replay && pb && <ReplayBar hud={hud} pb={pb} onChange={() => setHud(pb.hud())} />}
     </div>
+  );
+}
+
+// ---------- replay transport ----------
+const RATES = [1, 2, 4];
+const Glyph = ({ d }: { d: string }) => <svg aria-hidden viewBox="0 0 16 16" className="size-4 fill-current"><path d={d} /></svg>;
+const GLYPHS = {
+  previous: "M3 3h2v10H3zM13 3v10L6 8z",
+  next: "M11 3h2v10h-2zM3 3v10l7-5z",
+  play: "M4 2.5v11l9.5-5.5z",
+  pause: "M4 3h3v10H4zM9 3h3v10H9z",
+  end: "M1.5 3v10l5.5-5zM7.5 3v10l5.5-5zM13.5 3h1.5v10h-1.5z",
+  again: "M8 3a5 5 0 1 1-4.6 3H1.5L4.5 2.5 7.5 6H5.6A3 3 0 1 0 8 5z",
+};
+
+/**
+ * Controls for a finished match: step a round back or forward, pause, change
+ * speed, drag to any round, or jump to the result. Space pauses and resumes.
+ */
+function ReplayBar({ hud, pb, onChange }: { hud: Hud; pb: Playback; onChange: () => void }) {
+  const ended = hud.phase === "final";
+  const act = useCallback((f: () => void) => { f(); onChange(); }, [onChange]);
+  const toggle = useCallback(() => act(() => { if (pb.phase === "final") { pb.seek(1); pb.paused = false; } else pb.paused = !pb.paused; }), [act, pb]);
+
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement;
+      if (e.key !== " " || e.repeat || t.closest("input, textarea, select, button, [contenteditable]")) return;
+      e.preventDefault(); toggle();
+    };
+    document.addEventListener("keydown", key);
+    return () => document.removeEventListener("keydown", key);
+  }, [toggle]);
+
+  const button = "grid size-8 flex-none cursor-pointer place-items-center rounded-md text-limestone hover:bg-elevated hover:text-parchment disabled:cursor-default disabled:opacity-40 disabled:hover:bg-transparent";
+  const at = ended ? hud.rounds : hud.round;
+  return (
+    <div role="toolbar" aria-label="Replay controls" className="mt-2 flex h-11 items-center gap-1 rounded-lg border border-bronze bg-walnut px-1.5 sm:gap-2 sm:px-2">
+      <button type="button" className={button} aria-label="Previous round" title="Previous round" onClick={() => act(() => pb.previous())}><Glyph d={GLYPHS.previous} /></button>
+      <button type="button" className={`${button} bg-elevated text-parchment`} aria-label={ended ? "Watch again" : hud.paused ? "Play" : "Pause"} title={ended ? "Watch again" : hud.paused ? "Play (space)" : "Pause (space)"} onClick={toggle}>
+        <Glyph d={ended ? GLYPHS.again : hud.paused ? GLYPHS.play : GLYPHS.pause} />
+      </button>
+      <button type="button" className={button} aria-label="Next round" title="Next round" disabled={ended} onClick={() => act(() => pb.next())}><Glyph d={GLYPHS.next} /></button>
+
+      <label className="flex min-w-0 flex-1 items-center gap-2 px-1">
+        <span className="sr-only">Round</span>
+        <input type="range" min={1} max={hud.rounds} step={1} value={at} aria-valuetext={`Round ${at} of ${hud.rounds}`}
+          onChange={(e) => act(() => pb.seek(Number(e.target.value)))} className="min-w-0 flex-1 cursor-pointer accent-jade" />
+        <span className="w-12 flex-none text-right text-[12px] tabular-nums text-sand">{ended ? "End" : `${at} / ${hud.rounds}`}</span>
+      </label>
+
+      <div role="radiogroup" aria-label="Speed" className="hidden flex-none rounded-md bg-charcoal p-0.5 ring-1 ring-bronze min-[420px]:flex">
+        {RATES.map((r) => (
+          <button key={r} type="button" role="radio" aria-checked={hud.rate === r} onClick={() => act(() => { pb.rate = r; })}
+            className="cursor-pointer rounded px-2 py-0.5 text-[12px] font-medium tabular-nums text-sand aria-checked:bg-elevated aria-checked:text-parchment">{r}×</button>
+        ))}
+      </div>
+      {/* Too narrow for all three speeds: one button that steps through them. */}
+      <button type="button" aria-label={`Speed ${hud.rate}×. Change speed.`} onClick={() => act(() => { pb.rate = RATES[(RATES.indexOf(pb.rate) + 1) % RATES.length]; })}
+        className="h-7 flex-none cursor-pointer rounded-md px-1.5 text-[12px] font-medium tabular-nums text-parchment ring-1 ring-bronze hover:bg-elevated min-[420px]:hidden">{hud.rate}×</button>
+      <button type="button" className={button} aria-label="Skip to the result" title="Skip to the result" disabled={ended} onClick={() => act(() => pb.seek(hud.rounds + 1))}><Glyph d={GLYPHS.end} /></button>
+    </div>
+  );
+}
+
+/**
+ * A player's line for the round, in a bubble that hangs from their plate and
+ * points back up at it. It sits in the plate's column, so the transaction log
+ * below makes room for it while it shows.
+ */
+function Speech({ text, who, edge }: { text: string; who: string; edge: "left" | "right" }) {
+  return (
+    <p role="status" aria-label={`@${who} says: ${text}`}
+      className={`relative w-max max-w-[min(16rem,44vw)] rounded-xl bg-parchment px-3 py-1.5 text-[12px]/4 font-medium text-charcoal shadow-lg shadow-black/30 motion-safe:animate-fade before:absolute before:-top-1 before:size-2.5 before:rotate-45 before:bg-parchment ${edge === "left" ? "before:left-5" : "before:right-5"}`}>
+      {text}
+    </p>
   );
 }
 
@@ -338,10 +416,10 @@ const TransactionLog = memo(function TransactionLog({ entries }: { entries: Acti
         {entries.map(({ round, kind, label, amount }, i) => (
           <li key={i} className="grid grid-cols-[auto_1fr_auto] items-baseline gap-x-1.5 border-b border-bronze/40 py-1 last:border-0">
             <span className="font-mono text-sand">R{round}</span>
-            <span>{label}</span>
-            <span className={`whitespace-nowrap font-mono tabular-nums ${kind === "taken" ? "text-terracotta" : kind === "dealt" ? "text-fern" : "text-honey"}`}>
+            {kind === "said" ? <span className="col-span-2 break-words text-limestone">{label}</span> : <span>{label}</span>}
+            {kind !== "said" && <span className={`whitespace-nowrap font-mono tabular-nums ${kind === "taken" ? "text-terracotta" : kind === "dealt" ? "text-fern" : "text-honey"}`}>
               {kind === "dealt" ? `${amount} dmg` : kind === "taken" ? `−${amount} HP` : `${amount > 0 ? "+" : "−"}${Math.abs(amount)}g`}
-            </span>
+            </span>}
           </li>
         ))}
       </ol>}

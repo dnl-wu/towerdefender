@@ -234,6 +234,76 @@ function chooseAttack(state: DuelState, opp: OpponentSnapshot, budget: number, t
  * the match's secret: the arena keeps it hidden until the match is over.
  */
 export function playBotTurn(state: DuelState, player: 0 | 1, level: number, opp: OpponentSnapshot, salt = 0): void {
+  botMoves(state, player, level, opp, salt);
+  botSpeech(state, player, level, salt);
+}
+
+/**
+ * What each house bot says, by occasion. Speech has no effect on play, and the
+ * choice of line uses its own hash, not the bot's random stream, so a bot that
+ * talks plays exactly as one that does not.
+ */
+const LINES: Record<number, Record<"hello" | "hurt" | "scored" | "boss" | "drums" | "idle", string[]>> = {
+  1: {
+    hello: ["Bolts in. Hoping for the best.", "Rustbucket online. Mostly."],
+    hurt: ["That rattled something loose.", "Ow. I felt that in my gears."],
+    scored: ["Did... did that work?", "Huh. One got through."],
+    boss: ["Big one coming. I will build something. Anything."],
+    drums: ["I found a drum. Hitting it."],
+    idle: ["Building wherever the bolts fall.", "Is this a good spot? Probably."],
+  },
+  2: {
+    hello: ["Page one of the manual: say hello. Hello.", "Patchwork, ready. I read the instructions."],
+    hurt: ["The manual did not mention that.", "Patching the leak. Mostly."],
+    scored: ["Exactly as the manual described.", "Raiders delivered as specified."],
+    boss: ["Chapter five: the boss. I skimmed chapter five."],
+    drums: ["The manual says drums. Drums it is."],
+    idle: ["Following step four of nine.", "Tower, tower, tower. Per spec."],
+  },
+  3: {
+    hello: ["Hard hats on. Let's build.", "Foreman on site. Forecast looks busy."],
+    hurt: ["Who left the gate open?", "Noted. Doubling the crew on that bend."],
+    scored: ["Delivery made. Sign here.", "My crew found a gap in your fence."],
+    boss: ["Big load on the forecast. Reinforcing.", "Boss round. Everyone to the walls."],
+    drums: ["Crew, pick up the pace. And theirs.", "Drums on. Let's see your crew keep up."],
+    idle: ["Ahead of schedule.", "Read the forecast. Built to match."],
+  },
+  4: {
+    hello: ["Running the numbers. You will not like them.", "Overseer online. Projections ready."],
+    hurt: ["A rounding error. It will not repeat.", "Variance. Adjusting the model."],
+    scored: ["As projected.", "Your defence was 8% short. I checked."],
+    boss: ["Boss round. Margin calculated.", "The simulation says I hold. It is rarely wrong."],
+    drums: ["Your margin was thin. Now it is thinner.", "Tempo, increased."],
+    idle: ["Everything is within tolerance.", "Income curve on target."],
+  },
+  5: {
+    hello: ["I have already found the gap in your wall.", "Kneel now and save us both the rounds."],
+    hurt: ["A scratch. You will pay for it.", "Enjoy that. It will not happen again."],
+    scored: ["Your wall has a gap. I found it.", "Did you feel that? There is more."],
+    boss: ["Even the boss fears me.", "Something large approaches. It is not the boss."],
+    drums: ["Hear that? Your towers do.", "Faster. Your wall cannot keep up."],
+    idle: ["I am watching your every tower.", "Your next mistake is already planned."],
+  },
+};
+
+function botSpeech(state: DuelState, player: 0 | 1, level: number, salt: number): void {
+  const lines = LINES[level];
+  if (!lines || state.status !== "planning") return;
+  const round = state.round, last = state.history.at(-1), lane = state.lanes[player];
+  const roll = hashSeed("speech", salt, player, round) % 1000;
+  let occasion: keyof typeof lines | null = null;
+  if (round === 1) occasion = "hello";
+  else if (lane.drums && roll < 700) occasion = "drums";
+  else if (last && last.sides[player].battle.livesLost >= 2 && roll < 600) occasion = "hurt";
+  else if (last && last.sides[1 - player].battle.leakedLives.send > 0 && roll < 500) occasion = "scored";
+  else if (round % 5 === 0 && roll < 500) occasion = "boss";
+  else if (roll < 120) occasion = "idle";
+  if (!occasion) return;
+  const pool = lines[occasion];
+  applyAction(state, player, { type: "say", text: pool[hashSeed("line", salt, player, round) % pool.length] });
+}
+
+function botMoves(state: DuelState, player: 0 | 1, level: number, opp: OpponentSnapshot, salt: number): void {
   const turn = new BotTurn(state, player, level, salt);
   const { lane, rng } = turn;
   const round = state.round;

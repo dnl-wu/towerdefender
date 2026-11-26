@@ -69,6 +69,19 @@ CREATE INDEX IF NOT EXISTS matches_p1 ON matches(p1, created_at);
 CREATE INDEX IF NOT EXISTS matches_status ON matches(status);
 `;
 
+// Columns added after the first release. Each runs once per database; a column
+// that is already there makes ALTER fail, which is the signal it has been applied.
+const MIGRATIONS = [
+  "ALTER TABLE users ADD COLUMN agent_seen_at INTEGER",
+  "ALTER TABLE users ADD COLUMN agent_client TEXT NOT NULL DEFAULT ''",
+];
+
+function migrate(exec: (sql: string) => void): void {
+  for (const sql of MIGRATIONS) {
+    try { exec(sql); } catch (e) { if (!/duplicate column/i.test(String(e))) throw e; }
+  }
+}
+
 const g = globalThis as unknown as { __tdDb?: DatabaseSync };
 
 function nodeDb(): DatabaseSync {
@@ -79,6 +92,7 @@ function nodeDb(): DatabaseSync {
     const conn = new DatabaseSync(file);
     conn.exec("PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 4000;");
     conn.exec(SCHEMA);
+    migrate((sql) => conn.exec(sql));
     g.__tdDb = conn;
   }
   return g.__tdDb;
@@ -90,6 +104,7 @@ function cloudSql() {
   const host = durableHost();
   if (host && !host.initialized) {
     host.sql.exec(SCHEMA);
+    migrate((sql) => host.sql.exec(sql));
     host.initialized = true;
   }
   return host?.sql;

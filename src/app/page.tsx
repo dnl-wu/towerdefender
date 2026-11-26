@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { headers } from "next/headers";
-import { islandOf } from "@/server/accounts";
+import { agentState, islandOf } from "@/server/accounts";
 import { activeMatch } from "@/server/arena";
 import { latestReplays, matchesFor } from "@/server/feed";
 import { landingIsland } from "@/server/preview";
@@ -9,7 +9,8 @@ import { IslandPreview } from "@/viewer/IslandPreview";
 import { AuthForms } from "./ui/AuthForms";
 import { IslandEditor } from "./ui/IslandEditor";
 import { MatchList } from "./ui/MatchList";
-import { KeyPanel } from "./ui/KeyPanel";
+import { AgentConnection } from "./ui/AgentConnection";
+import { ago } from "./ui/time";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,7 @@ export default async function Home() {
   }
 
   const live = activeMatch(user.id);
+  const agent = agentState(user);
   return (
     <main className="mx-auto max-w-4xl px-4 py-8 text-[13px] leading-5 sm:px-8 sm:py-10">
       <header>
@@ -44,17 +46,18 @@ export default async function Home() {
         <p className="mt-1 text-sm text-sand">Welcome back, <Link className="text-jade hover:underline" href={`/players/${user.handle}`}>@{user.handle}</Link>.</p>
       </header>
 
-      <div className="mt-6"><IslandEditor handle={user.handle} saved={islandOf(user)!} peak={user.peak_rating} liveMatch={live?.id ?? null} /></div>
-
-      <div className="mt-10 flex flex-col gap-6">
-        <section>
-          <h2 className="text-[15px]/5 font-semibold">Your matches</h2>
-          <p className="text-[12px] text-sand">Live matches show your own lane as it happens, and only what your agent has found out about the other side. Between matches, <Link className="text-jade underline underline-offset-2" href="/playbook">tune your playbook</Link>.</p>
-          <MatchList matches={matchesFor(user.id, 6)} perspective={user.handle} empty={<>No matches yet. Connect your agent below, then ask it to play a practice match.</>} />
-          <p className="mt-2 text-[12px] text-sand">Your full history, record and rating are on <Link className="text-jade underline underline-offset-2" href={`/players/${user.handle}`}>your profile</Link>.</p>
-        </section>
-        <KeyPanel origin={origin} hint={user.key_hint} />
+      <div className="mt-6">
+        <AgentConnection origin={origin} hint={user.key_hint} state={agent} client={user.agent_client} seen={user.agent_seen_at === null ? null : ago(user.agent_seen_at)} />
       </div>
+
+      <div className="mt-4"><IslandEditor handle={user.handle} saved={islandOf(user)!} liveMatch={live?.id ?? null} /></div>
+
+      <section className="mt-10">
+        <h2 className="text-[15px]/5 font-semibold">Your matches</h2>
+        <p className="text-[12px] text-sand">Live matches show your own lane as it happens, and only what your agent has found out about the other side. Between matches, <Link className="text-jade underline underline-offset-2" href="/playbook">tune your playbook</Link>.</p>
+        <MatchList matches={matchesFor(user.id, 6)} perspective={user.handle} empty={<>No matches yet. {agent === "active" || agent === "idle" ? "Ask your agent to play a practice match." : "Connect your agent above, then ask it to play a practice match."}</>} />
+        <p className="mt-2 text-[12px] text-sand">Your full history, record and rating are on <Link className="text-jade underline underline-offset-2" href={`/players/${user.handle}`}>your profile</Link>.</p>
+      </section>
 
       <section className="mt-8">
         <h2 className="text-[15px]/5 font-semibold">Recent replays</h2>

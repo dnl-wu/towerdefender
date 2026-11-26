@@ -70,6 +70,7 @@ export function roundReport(state: DuelState, player: 0 | 1, rec: RoundRecord) {
     },
     opponentSentYou: opp.sent.map((o) => ({ unit: o.unit, units: o.orders * UNITS[o.unit].send.count })),
     opponentBeatDrums: opp.drums,
+    opponentSaid: opp.said ?? null,
     yourSends: { sent: me.sent.map((o) => ({ unit: o.unit, units: o.orders * UNITS[o.unit].send.count })), drums: me.drums, goldSpent: me.sendSpent, livesTaken: opp.battle.leakedLives.send },
     // Only what is public. Their leaks, gold and income are not.
     opponent: { livesLost: opp.battle.livesLost, livesNow: opp.livesAfter },

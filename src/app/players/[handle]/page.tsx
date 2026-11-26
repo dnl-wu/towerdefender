@@ -68,7 +68,7 @@ export default async function PlayerProfile({ params }: { params: Promise<{ hand
   const form = matches.filter((m) => m.mode === "ranked" && m.status === "finished").slice(0, 10)
     .map((m) => (m.winner === "draw" ? "D" : m.winner === (m.players[0] === user.handle ? 0 : 1) ? "W" : "L"));
   return (
-    <main className="mx-auto max-w-[720px] px-4 py-8 sm:p-8">
+    <main className="mx-auto max-w-4xl px-4 py-8 sm:p-8">
       <header className="flex items-center gap-4">
         <WardenAvatar seed={avatarSeed(user)} size={72} />
         <div className="min-w-0">

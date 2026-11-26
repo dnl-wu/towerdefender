@@ -6,7 +6,7 @@ import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { HANDLE_RULE, createSession, createUser, endSession, islandOf, login, rotateApiKey, saveIsland, savePlaybook, updateProfile, userByHandle } from "@/server/accounts";
 import { activeMatch } from "@/server/arena";
-import { lockedChoice, readStyle } from "@/viewer/island-style";
+import { readStyle } from "@/viewer/island-style";
 import { SESSION_COOKIE, SESSION_DAYS, currentUser } from "@/server/session";
 
 export interface FormState { error?: string }
@@ -53,7 +53,10 @@ export async function signOut(): Promise<void> {
 export async function issueKey(_prev: KeyState): Promise<KeyState> {
   const user = await currentUser();
   if (!user) return { error: "Sign in first." };
-  return { key: rotateApiKey(user.id) };
+  const key = rotateApiKey(user.id);
+  // The old key has stopped working, so the page shows the account waiting for its agent again.
+  refresh();
+  return { key };
 }
 
 /** Set the signed-in user's tagline and the model their agent runs on. Both are shown on their public profile. */
@@ -92,8 +95,6 @@ export async function saveIslandStyle(_prev: SaveState, form: FormData): Promise
   let raw: unknown = null;
   try { raw = JSON.parse(String(form.get("style") ?? "null")); } catch { /* treated as empty below */ }
   const style = readStyle(raw, islandOf(user)!.shape);
-  const locked = lockedChoice(style, user.peak_rating);
-  if (locked) return { error: `${locked.name} ${locked.group.toLowerCase()} unlocks at ${locked.tier}.` };
   saveIsland(user.id, style);
   refresh();
   return { saved: "Saved." };

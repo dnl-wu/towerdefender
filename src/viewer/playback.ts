@@ -13,7 +13,8 @@ export interface Txn { round: number; text: string; delta: number; payload: Acti
 export interface ActivityEntry {
   round: number;
   label: string;
-  kind: "gold" | "taken" | "dealt";
+  /** "said" is a line of speech; its amount is unused. */
+  kind: "gold" | "taken" | "dealt" | "said";
   amount: number;
 }
 
@@ -52,6 +53,10 @@ export interface Hud {
   maxRounds: number;
   phase: Phase;
   replay: boolean;
+  /** Replay transport: paused, playing speed, and the rounds the match lasted. */
+  paused: boolean;
+  rate: number;
+  rounds: number;
   theme: string;
   /** Indexed by player, not by viewed side. */
   lives: [number, number];
@@ -60,6 +65,8 @@ export interface Hud {
   /** `drums`: War Drums are driving this lane's enemies faster in the round on screen. */
   wave: { round: number; theme: string; forecast: boolean; entries: WaveEntry[]; drums: boolean };
   note: { text: string; good: boolean } | null;
+  /** What each player said in the round on screen, indexed by player. */
+  speech: [string | null, string | null];
   result: { text: string; reason: string } | null;
   mood: ["neutral" | "focus" | "joy" | "sad", "neutral" | "focus" | "joy" | "sad"];
 }
@@ -75,6 +82,9 @@ export class Playback {
   phase: Phase = "waiting";
   phaseT = 0;
   clock = 0;
+  /** Replay controls. A paused replay holds still; the rate multiplies how fast it runs. */
+  paused = false;
+  rate = 1;
   /** The round on screen. */
   round = 1;
   battles: [Battle, Battle] | null = null;
@@ -106,6 +116,31 @@ export class Playback {
 
   /** Begin again from round one. A live match skips silently to its latest resolved round. */
   restart(): void {
+    this.reset();
+    if (this.feed.status === "active") while (this.round < this.feed.resolvedRounds && this.duel.status === "planning") this.skipRound();
+    this.enterRound();
+  }
+
+  /**
+   * Jump a replay to the start of a round, playing the rounds before it instantly.
+   * A round past the last one lands on the result.
+   */
+  seek(round: number): void {
+    const target = Math.max(1, Math.min(round, this.feed.resolvedRounds + 1));
+    this.reset();
+    while (this.round < target && this.round <= this.feed.resolvedRounds && this.duel.status === "planning") this.skipRound();
+    this.enterRound();
+    // Effects queued by the rounds skipped over belong to moments nobody saw.
+    this.fx = [];
+  }
+
+  /** The next round, or from the top once the replay has reached its result. */
+  next(): void { if (this.phase === "final") this.seek(1); else this.seek(this.round + 1); }
+
+  /** Back to the start of this round, or the round before when this one has only just begun. */
+  previous(): void { this.seek(this.phase === "build" || this.phase === "final" ? this.round - 1 : this.round); }
+
+  private reset(): void {
     this.duel = createDuel(this.feed.seed, this.feed.rulesVersion);
     this.txns = [[], []];
     this.activity = [[], []];
@@ -115,8 +150,6 @@ export class Playback {
     this.battles = null;
     this.lastRecord = null;
     this.round = 1;
-    if (this.feed.status === "active") while (this.round < this.feed.resolvedRounds && this.duel.status === "planning") this.skipRound();
-    this.enterRound();
   }
 
   setFeed(feed: Feed): void {
@@ -251,6 +284,8 @@ export class Playback {
       if (entry) this.append(p, entry);
     }
     this.txns[p].push({ round: this.round, text: res.note, delta: lane.gold - before, payload: a });
+    // Speech goes in both players' logs, so either log reads as the conversation.
+    if (a.type === "say") for (const q of [0, 1] as const) this.append(q, { round: this.round, kind: "said", label: `${this.feed.players[p] ? `@${this.feed.players[p].handle}` : `Player ${p + 1}`}: “${lane.said ?? a.text}”`, amount: 0 });
     const notes = this.towerNotes[p];
     if (a.type === "build" && res.towerId !== undefined) {
       notes.set(res.towerId, [{ round: this.round, text: `Built for ${TOWERS[a.tower].levels[0].cost} gold` }]);
@@ -309,6 +344,8 @@ export class Playback {
 
   /** Advance by real seconds. */
   update(dt: number): void {
+    if (this.paused) { this.alpha = Math.min(1, this.acc / TICK); return; }
+    dt *= this.rate;
     const behind = this.feed.resolvedRounds - this.round;
     const speed = PLAYBACK * (this.feed.status === "active" ? (behind >= 3 ? 3 : behind >= 1 ? 1.6 : 1) : 1);
     this.clock += dt;
@@ -329,8 +366,6 @@ export class Playback {
     } else if (this.phase === "result" && this.phaseT >= 3.2 / speed) {
       this.round++;
       this.enterRound();
-    } else if (this.phase === "final" && this.feed.status === "finished" && this.phaseT >= 16) {
-      this.restart();
     }
   }
 
@@ -409,7 +444,9 @@ export class Playback {
   hud(): Hud {
     const d = this.duel, fighting = this.phase === "battle" && this.battles;
     const num = (f: (p: 0 | 1) => number): [number, number] => [f(0), f(1)];
+    const pair = <T,>(f: (p: 0 | 1) => T): [T, T] => [f(0), f(1)];
     const shown = this.phase === "build" || this.phase === "battle" || this.phase === "result";
+    const replay = this.feed.status === "finished";
     const waveRound = shown ? this.round : d.round;
     const forecast = !shown && d.status === "planning";
     const entries: WaveEntry[] = shown ? this.waveEntries(this.side)
@@ -435,7 +472,10 @@ export class Playback {
       return "neutral";
     };
     return {
-      round: Math.min(shown ? this.round : d.round, RULES.maxRounds), maxRounds: RULES.maxRounds, phase: this.phase, replay: this.feed.status === "finished",
+      round: Math.min(shown ? this.round : d.round, replay ? this.feed.resolvedRounds : RULES.maxRounds),
+      // A replay counts against the rounds the match actually lasted, not the cap.
+      maxRounds: replay ? this.feed.resolvedRounds : RULES.maxRounds, phase: this.phase, replay,
+      paused: this.paused, rate: this.rate, rounds: this.feed.resolvedRounds,
       theme: waveArchetype(d.seed, waveRound),
       // In lane mode the opponent's lane is hidden: their lives change only when the round settles.
       lives: num((p) => d.lanes[p].lives - (fighting && !(this.laneMode && p === this.opp) ? this.battles![p].livesLost : 0)),
@@ -445,6 +485,8 @@ export class Playback {
       income: num((p) => d.lanes[p].income),
       wave: { round: waveRound, theme: waveArchetype(d.seed, waveRound), forecast, entries, drums: shown && this.setups[this.side].mods.haste !== undefined },
       note, result, mood: [mood(0), mood(1)],
+      // Said while planning, it is heard while the round plays out and as it settles.
+      speech: pair((p) => this.phase === "build" || this.phase === "battle" ? d.lanes[p].said : this.phase === "result" ? this.lastRecord?.sides[p].said ?? null : null),
     };
   }
 }

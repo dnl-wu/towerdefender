@@ -17,8 +17,9 @@ export default async function MatchPage({ params }: { params: Promise<{ id: stri
   if (view.view === "summary") return <main className="p-4"><LiveSummary initial={view} /></main>;
   const score = view.finalLives ? scoreLine(view.finalLives, endKind(view.endReason)) : null;
   return (
-    // Sized so the whole miniature, with its instruments, fits the window without scrolling.
-    <main className={`mx-auto w-full p-2 sm:p-4 ${view.finalLives ? "max-w-[min(1120px,calc((100dvh_-_176px)*1.39))]" : "max-w-[min(1120px,calc((100dvh_-_80px)*1.39))]"}`}>
+    // Sized so the whole miniature, with its instruments, fits the window without scrolling; a finished match also makes room for its result and replay controls.
+    // The navigation bar reads data-frame to share these edges (see .site-frame in globals.css).
+    <main data-frame={view.finalLives ? "match-final" : "match"} className={`mx-auto w-full p-2 sm:p-4 ${view.finalLives ? "max-w-[min(1120px,calc((100dvh_-_228px)*1.39))]" : "max-w-[min(1120px,calc((100dvh_-_80px)*1.39))]"}`}>
       {score && (
         <header className="mb-3 rounded-lg border border-bronze bg-walnut px-4 py-3 text-sm">
           <h1 className="font-semibold text-honey">{view.winner === "draw" ? "Draw" : typeof view.winner === "number" ? `@${view.players[view.winner].handle} won` : "Match finished"}</h1>

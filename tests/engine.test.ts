@@ -286,7 +286,7 @@ test("a player's live view rebuilds their own lane exactly from their moves and 
       // The match as the server would hold it partway through.
       const partway = replayDuel(full.seed, full.log.slice(0, resolved), resolved);
       const { log, lane } = laneOf(partway, full.log, seat, resolved);
-      assert.ok(log.every((r) => r[1 - seat].every((a) => a.type === "send")), "only their sends are included");
+      assert.ok(log.every((r) => r[1 - seat].every((a) => a.type === "send" || a.type === "drums" || a.type === "say")), "only their sends, drums and speech are included");
       const feed = {
         view: "lane" as const, id: "t", seed: full.seed, mode: "practice" as const, status: "active" as const, resolvedRounds: resolved, log,
         winner: null, endReason: null, createdAt: 0, finishedAt: null, players: [] as never, live: null, lane,

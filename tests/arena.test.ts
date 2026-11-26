@@ -2,7 +2,7 @@ import { strict as assert } from "node:assert";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
-import { createUser, ensureBots, playbookRecords, savePlaybook, userById } from "../src/server/accounts.ts";
+import { agentState, createUser, ensureBots, noteAgentSeen, playbookRecords, rotateApiKey, savePlaybook, userByApiKey, userById } from "../src/server/accounts.ts";
 import { activeMatch, expireDueMatches, findMatch, recentlyFinished, resign, submit } from "../src/server/arena.ts";
 import { run } from "../src/server/db.ts";
 import { latestReplays, matchesFor, ratingHistory } from "../src/server/feed.ts";
@@ -115,5 +115,31 @@ test("a win over a house bot cannot lift a rating more than the ceiling above th
     run("UPDATE users SET rating = ? WHERE id = ?", bot.rating + BOT_CEILING - 2, a.id);
     resign(match, 1);
     assert.equal(userById(a.id)!.rating, bot.rating + BOT_CEILING, "the gain stops at the ceiling");
+  });
+});
+
+test("an account's agent shows as waiting for a new key, connected once it calls, and idle when it goes quiet", async () => {
+  await withArena(async () => {
+    const user = createUser("wired", "password123");
+    assert.equal(agentState(userById(user.id)!), "none");
+
+    const key = rotateApiKey(user.id);
+    const issued = userByApiKey(key)!;
+    assert.equal(agentState(issued), "waiting");
+
+    noteAgentSeen(issued, "claude-code");
+    const seen = userById(user.id)!;
+    assert.equal(seen.agent_client, "claude-code");
+    assert.equal(agentState(seen), "active");
+    assert.equal(agentState(seen, seen.agent_seen_at! + 10 * 60_000), "idle");
+
+    // Calls without a client name keep the name from the opening message.
+    noteAgentSeen({ ...seen, agent_seen_at: 0 });
+    assert.equal(userById(user.id)!.agent_client, "claude-code");
+
+    rotateApiKey(user.id);
+    const fresh = userById(user.id)!;
+    assert.equal(agentState(fresh), "waiting", "a replaced key has to be connected again");
+    assert.equal(fresh.agent_client, "");
   });
 });

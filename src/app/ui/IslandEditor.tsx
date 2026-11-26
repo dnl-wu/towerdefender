@@ -2,95 +2,101 @@
 import Link from "next/link";
 import { useActionState, useState } from "react";
 import { HomeIsland } from "@/viewer/HomeIsland";
-import { LIGHTS, OPTION_GROUPS, styleKey, tierName, unlockRating, type IslandStyle } from "@/viewer/island-style";
+import { LIGHTS, OPTION_GROUPS, styleKey, type IslandStyle } from "@/viewer/island-style";
 import { LIGHTING } from "@/viewer/voxel";
 import { saveIslandStyle, type SaveState } from "../actions";
 
-const quiet = "cursor-pointer rounded-md border border-bronze bg-elevated px-3 py-1.5 text-sm font-medium hover:border-brass disabled:cursor-default disabled:opacity-50";
-const primary = "cursor-pointer rounded-md bg-jade px-3 py-1.5 text-sm font-semibold text-charcoal hover:bg-[#93d3c3] disabled:cursor-default disabled:opacity-50";
+const button = "cursor-pointer rounded-md px-2.5 py-1 text-[13px] font-medium disabled:cursor-default disabled:opacity-40";
+const quiet = `${button} border border-bronze bg-elevated hover:border-brass`;
+const primary = `${button} bg-jade font-semibold text-charcoal hover:bg-[#93d3c3]`;
+/** A segmented control: one rounded track, the chosen segment raised. */
+const track = "flex rounded-lg bg-charcoal p-0.5 ring-1 ring-bronze";
+const segment = "flex-1 cursor-pointer rounded-md px-2 py-1 text-[12px] font-medium text-sand hover:text-parchment aria-checked:bg-elevated aria-checked:text-parchment aria-checked:shadow-sm aria-selected:bg-elevated aria-selected:text-parchment aria-selected:shadow-sm";
 
 const same = (a: IslandStyle, b: IslandStyle) => styleKey(a) === styleKey(b) && a.shape === b.shape && a.light === b.light;
 
+type GroupKey = (typeof OPTION_GROUPS)[number]["key"];
+
 /**
- * Your island and the controls that change it. Changes show at once and are kept
- * only when saved. While your agent is in a match the island is locked.
+ * Your island in one panel, laid out like a settings pane on a Mac: a title bar
+ * with the save controls, the island, and a sidebar that switches between what
+ * can be changed. Changes show at once and are kept only when saved. While your
+ * agent is in a match the island is locked.
  */
-export function IslandEditor({ handle, saved, peak, liveMatch }: { handle: string; saved: IslandStyle; peak: number; liveMatch: string | null }) {
+export function IslandEditor({ handle, saved, liveMatch }: { handle: string; saved: IslandStyle; liveMatch: string | null }) {
   const [style, setStyle] = useState(saved);
+  const [tab, setTab] = useState<GroupKey>("turf");
   const [state, action, pending] = useActionState<SaveState, FormData>(saveIslandStyle, {});
   const locked = liveMatch !== null;
   const changed = !same(style, saved);
   const set = <K extends keyof IslandStyle>(key: K, value: IslandStyle[K]) => setStyle((s) => ({ ...s, [key]: value }));
+  const group = OPTION_GROUPS.find((g) => g.key === tab)!;
+  const status = state.error ?? (changed ? "Edited" : state.saved);
 
   return (
-    <section aria-labelledby="your-island" className="grid gap-5 md:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)]">
-      <figure className="self-start overflow-hidden rounded-xl border border-bronze bg-charcoal md:sticky md:top-6">
-        <div className="-mx-[3%] -mt-[11%] -mb-[1%]"><HomeIsland handle={handle} style={style} /></div>
-        <figcaption className="border-t border-bronze bg-walnut px-3 py-2 text-xs text-sand">
-          {changed ? <span className="text-honey">Previewing changes. Save to keep them.</span> : <>Your island, as it stands.</>}
-        </figcaption>
-      </figure>
+    <form action={action} aria-labelledby="your-island" className="overflow-hidden rounded-xl border border-bronze bg-walnut shadow-lg shadow-black/20">
+      <input type="hidden" name="style" value={JSON.stringify(style)} />
 
-      <form action={action} className="min-w-0">
-        <h2 id="your-island" className="text-xl font-semibold">Your island</h2>
-        <p className="mt-1 text-sm text-sand">Matches are played on their own map, the same for both players. Your colours dress your lane when people watch.</p>
-        {locked && (
-          <p className="mt-3 rounded-md border border-honey/40 bg-honey/10 px-3 py-2 text-sm text-honey">
-            Your agent is in a match, so your island is locked until it ends. <Link className="underline underline-offset-2" href={`/match/${liveMatch}`}>Watch the match</Link>
-          </p>
-        )}
-        <input type="hidden" name="style" value={JSON.stringify(style)} />
-        <fieldset disabled={locked || pending} className="mt-4 space-y-4 disabled:opacity-60">
-          <div className="flex items-center justify-between gap-3">
-            <span className="text-xs font-medium text-limestone">Shape</span>
-            <button type="button" className={quiet} onClick={() => set("shape", 1 + Math.floor(Math.random() * 999_999_999))}>Try another shape</button>
+      {/* Title bar: the name and whether there is anything unsaved on the left, the actions on the right. */}
+      <header className="flex h-11 items-center gap-3 border-b border-bronze bg-elevated/40 px-4">
+        <h2 id="your-island" className="text-[13px] font-semibold">Your island</h2>
+        <p aria-live="polite" className={`min-w-0 flex-1 truncate text-[12px] ${state.error ? "text-terracotta" : changed ? "text-honey" : "text-sand"}`}>{status}</p>
+        <button type="button" className={quiet} disabled={locked || pending || !changed} onClick={() => setStyle(saved)}>Revert</button>
+        <button className={primary} disabled={locked || pending || !changed}>{pending ? "Saving…" : "Save"}</button>
+      </header>
+
+      {locked && (
+        <p className="border-b border-honey/30 bg-honey/10 px-4 py-2 text-[12px] text-honey">
+          Your agent is in a match, so your island is locked until it ends. <Link className="underline underline-offset-2" href={`/match/${liveMatch}`}>Watch the match</Link>
+        </p>
+      )}
+
+      <div className="grid md:grid-cols-[minmax(0,1fr)_272px]">
+        {/* The island fills its half of the panel whatever the sidebar's height, cropped from the top, where the scene keeps room for a match's instruments. */}
+        <div className="relative aspect-[1.55] overflow-hidden bg-charcoal md:aspect-auto [&_canvas]:absolute [&_canvas]:inset-0 [&_canvas]:size-full [&_canvas]:object-cover [&_canvas]:object-bottom">
+          <HomeIsland handle={handle} style={style} />
+        </div>
+
+        <fieldset disabled={locked || pending} className="flex min-w-0 flex-col gap-4 border-t border-bronze p-4 disabled:opacity-50 md:border-t-0 md:border-l">
+          <div role="tablist" aria-label="Part of the island" className={track}>
+            {OPTION_GROUPS.map((g) => (
+              <button key={g.key} type="button" role="tab" id={`tab-${g.key}`} aria-controls="island-options" aria-selected={tab === g.key}
+                onClick={() => setTab(g.key)} className={segment}>{g.key === "crystal" ? "Crystal" : g.label}</button>
+            ))}
           </div>
 
-          <div>
-            <span id="light-label" className="text-xs font-medium text-limestone">Time of day</span>
-            <div role="radiogroup" aria-labelledby="light-label" className="mt-1.5 flex rounded-md border border-bronze bg-charcoal p-0.5 text-sm">
-              {LIGHTS.map((key) => (
-                <button key={key} type="button" role="radio" aria-checked={style.light === key} onClick={() => set("light", key)}
-                  className="flex-1 cursor-pointer rounded py-1 font-medium text-sand aria-checked:bg-elevated aria-checked:text-parchment">{LIGHTING[key].name}</button>
+          {/* The chosen part's options, as a short list with the current one ticked. Beside the island, room for the longest list, so the panel keeps its size between tabs. */}
+          <div id="island-options" role="tabpanel" aria-labelledby={`tab-${tab}`} className="md:min-h-[164px]">
+            <div role="radiogroup" aria-label={group.label} className="flex flex-col">
+              {Object.entries(group.options).map(([key, option]) => (
+                <button key={key} type="button" role="radio" aria-checked={style[tab] === key}
+                  onClick={() => setStyle((s) => ({ ...s, [tab]: key }))}
+                  className="group flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-[13px] text-sand hover:bg-elevated/60 aria-checked:text-parchment">
+                  <span aria-hidden className="size-5 flex-none rounded-full ring-1 ring-black/40" style={{ background: option.swatch }} />
+                  <span className="flex-1 truncate">{option.name}</span>
+                  <svg aria-hidden viewBox="0 0 16 16" className="invisible size-3.5 fill-none stroke-jade stroke-2 group-aria-checked:visible"><path d="m3.5 8.5 3 3 6-7" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </button>
               ))}
             </div>
           </div>
 
-          {OPTION_GROUPS.map((group) => (
-            <div key={group.key}>
-              <span id={`${group.key}-label`} className="text-xs font-medium text-limestone">{group.label}</span>
-              <div role="radiogroup" aria-labelledby={`${group.key}-label`} className="mt-1.5 grid grid-cols-[repeat(auto-fill,minmax(68px,1fr))] gap-1.5">
-                {Object.entries(group.options).map(([key, option]) => {
-                  const unlock = "unlock" in option ? option.unlock : undefined;
-                  const floor = unlockRating(unlock);
-                  const closed = floor !== null && peak < floor;
-                  const picked = style[group.key] === key;
-                  return (
-                    <button key={key} type="button" role="radio" aria-checked={picked} disabled={closed}
-                      title={closed ? `Unlocks at ${tierName(unlock!)} (${floor} peak rating)` : option.name}
-                      onClick={() => setStyle((s) => ({ ...s, [group.key]: key }))}
-                      className="flex min-w-0 cursor-pointer flex-col items-center gap-1 rounded-md border border-transparent px-1 py-1.5 text-[11px] text-sand hover:bg-elevated aria-checked:border-jade aria-checked:text-parchment disabled:cursor-not-allowed disabled:hover:bg-transparent">
-                      <span aria-hidden className="relative grid size-7 place-items-center">
-                        <span className={`absolute inset-0 rounded-full ring-1 ring-black/40 ${closed ? "opacity-30" : ""}`} style={{ background: option.swatch }} />
-                        {closed && <svg viewBox="0 0 16 16" className="relative size-3.5 fill-parchment"><path d="M5 7V5a3 3 0 0 1 6 0v2h.5A1.5 1.5 0 0 1 13 8.5v5a1.5 1.5 0 0 1-1.5 1.5h-7A1.5 1.5 0 0 1 3 13.5v-5A1.5 1.5 0 0 1 4.5 7H5Zm1.5 0h3V5a1.5 1.5 0 0 0-3 0v2Z" /></svg>}
-                      </span>
-                      <span className="max-w-full truncate">{option.name}</span>
-                      {closed && <span className="-mt-1 max-w-full truncate text-[10px] text-sand/70">{tierName(unlock!)}</span>}
-                    </button>
-                  );
-                })}
+          <div className="mt-auto flex flex-col gap-3 border-t border-bronze pt-4">
+            <div className="flex flex-col gap-1.5">
+              <span id="light-label" className="text-[12px] text-limestone">Time of day</span>
+              <div role="radiogroup" aria-labelledby="light-label" className={track}>
+                {LIGHTS.map((key) => (
+                  <button key={key} type="button" role="radio" aria-checked={style.light === key} aria-label={LIGHTING[key].name}
+                    onClick={() => set("light", key)} className={segment}>{LIGHTING[key].name.split(" ")[0]}</button>
+                ))}
               </div>
             </div>
-          ))}
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-[12px] text-limestone">Shape</span>
+              <button type="button" className={quiet} onClick={() => set("shape", 1 + Math.floor(Math.random() * 999_999_999))}>Shuffle</button>
+            </div>
+          </div>
         </fieldset>
-
-        <div className="mt-5 flex items-center gap-3">
-          <button className={primary} disabled={locked || pending || !changed}>{pending ? "Saving…" : "Save island"}</button>
-          <button type="button" className={quiet} disabled={locked || pending || !changed} onClick={() => setStyle(saved)}>Revert</button>
-          <p aria-live="polite" className={`text-xs ${state.error ? "text-terracotta" : "text-fern"}`}>{state.error ?? (changed ? "" : state.saved)}</p>
-        </div>
-        <p className="mt-3 text-xs text-sand">Locked colours open up as your peak rating reaches new tiers.</p>
-      </form>
-    </section>
+      </div>
+    </form>
   );
 }

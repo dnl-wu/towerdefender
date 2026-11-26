@@ -14,7 +14,20 @@ export type Action =
   | { type: "upgrade"; id: number; spec?: Spec }
   | { type: "sell"; id: number; pricing?: "whole-percent" }
   | { type: "target"; id: number; mode: Targeting }
-  | { type: "send"; unit: UnitType; orders?: number };
+  | { type: "send"; unit: UnitType; orders?: number }
+  /** A line of speech, shown above the player's portrait to everyone watching. It changes nothing in the game. */
+  | { type: "say"; text: string };
+
+/** The longest line a player can say in a round. */
+export const SPEECH_LIMIT = 80;
+
+/**
+ * Speech as it is stored and shown: one line, spaces collapsed, with control
+ * characters and text-direction overrides removed (emoji joiners are kept).
+ */
+export function cleanSpeech(text: unknown): string {
+  return typeof text === "string" ? text.replace(/[\p{Cc}\u2028\u2029\u202a-\u202e\u2066-\u2069]+/gu, " ").replace(/\s+/g, " ").trim() : "";
+}
 
 export interface Lane {
   gold: number;
@@ -27,6 +40,8 @@ export interface Lane {
   sendSpent: number;
   /** War Drums bought this round, beaten against the opponent's lane. */
   drums: boolean;
+  /** What this player said this round, if anything. */
+  said: string | null;
   committed: boolean;
   /** What this player knows about the opponent's towers. Fog of war: only what contact or a Scanner revealed. */
   intel: Intel;
@@ -58,6 +73,8 @@ export interface RoundRecord {
     sendSpent: number;
     /** This side beat War Drums against the opponent this round. */
     drums: boolean;
+    /** What this side said this round. */
+    said: string | null;
     /** Gold thieves took from this side, and gold this side's thieves brought home. */
     goldLost: number;
     goldStolen: number;
@@ -97,7 +114,7 @@ export interface DuelState {
 function newLane(): Lane {
   return {
     gold: RULES.startGold, income: RULES.baseIncome, lives: RULES.startLives, towers: [], nextTowerId: 1,
-    sends: [], sendSpent: 0, drums: false, committed: false, intel: { towers: {}, newlySeen: [] }, lastScanRound: 0,
+    sends: [], sendSpent: 0, drums: false, said: null, committed: false, intel: { towers: {}, newlySeen: [] }, lastScanRound: 0,
     totals: { towerGold: 0, sendGold: 0, scannerGold: 0, drumsGold: 0, bounty: 0, livesTaken: 0, refunds: 0, goldStolen: 0, goldLost: 0 },
   };
 }
@@ -120,7 +137,8 @@ const fail = (error: string): ActionResult => ({ ok: false, error });
 
 /** Validate and apply one action for a player. Rejected actions change nothing. */
 export function applyAction(state: DuelState, player: 0 | 1, action: Action): ActionResult {
-  const order: Action = action?.type === "sell" ? { ...action, pricing: "whole-percent" } : canonicalAction(action);
+  const order: Action = action?.type === "sell" ? { ...action, pricing: "whole-percent" }
+    : action?.type === "say" ? { type: "say", text: cleanSpeech(action.text) } : canonicalAction(action);
   return applyRecordedAction(state, player, order);
 }
 
@@ -160,6 +178,14 @@ function apply(state: DuelState, player: 0 | 1, lane: Lane, a: Action): ActionRe
       lane.totals.drumsGold += cost;
       lane.drums = true;
       return { ok: true, note: `War Drums bought for ${cost} gold: every enemy in their lane moves ${Math.round((DRUMS.haste - 1) * 100)}% faster this round.` };
+    }
+    case "say": {
+      const text = cleanSpeech(a.text);
+      if (!text) return fail("Say something: text is empty.");
+      if (text.length > SPEECH_LIMIT) return fail(`Speech is limited to ${SPEECH_LIMIT} characters; that is ${text.length}.`);
+      if (lane.said !== null) return fail("You have already said something this round.");
+      lane.said = text;
+      return { ok: true, note: `Said: "${text}"` };
     }
     case "build": {
       if (!TOWER_TYPES.includes(a.tower)) return fail(`Unknown tower "${a.tower}". Options: ${TOWER_TYPES.join(", ")}.`);
@@ -242,7 +268,7 @@ function apply(state: DuelState, player: 0 | 1, lane: Lane, a: Action): ActionRe
       return { ok: true, note: `Sending ${s.count * orders} ${UNITS[a.unit].name}${s.count * orders > 1 ? "s" : ""} for ${cost} gold (+${s.income * orders} income).` };
     }
     default:
-      return fail(`Unknown action type. Options: build, upgrade, sell, target, send, scan, drums.`);
+      return fail(`Unknown action type. Options: build, upgrade, sell, target, send, scan, drums, say.`);
   }
 }
 
@@ -294,13 +320,14 @@ export function resolveRound(state: DuelState): RoundRecord {
   for (const p of [0, 1] as const) {
     const lane = state.lanes[p];
     record.sides.push({
-      battle: results[p], sent: lane.sends, sendSpent: lane.sendSpent, drums: lane.drums, goldLost: theft[p], goldStolen: theft[1 - p],
+      battle: results[p], sent: lane.sends, sendSpent: lane.sendSpent, drums: lane.drums, said: lane.said, goldLost: theft[p], goldStolen: theft[1 - p],
       goldAfter: lane.gold, incomeAfter: lane.income, livesAfter: lane.lives,
       towerValue: lane.towers.reduce((s, t) => s + t.invested, 0),
     });
     lane.sends = [];
     lane.sendSpent = 0;
     lane.drums = false;
+    lane.said = null;
     lane.committed = false;
   }
   state.history.push(record);

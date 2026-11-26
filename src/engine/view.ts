@@ -88,6 +88,7 @@ export function stateView(state: DuelState, player: 0 | 1) {
       knownTowers: known.length,
       sentAtYouLastRound: last ? last.sides[1 - player].sent : [],
       beatDrumsLastRound: last ? last.sides[1 - player].drums : false,
+      saidLastRound: last ? last.sides[1 - player].said ?? null : null,
     },
     scanner: { cost: scannerPrice(state.round), boughtThisRound: me.lastScanRound === state.round, lastScanRound: me.lastScanRound || null, tool: "deploy_scanner" },
     warDrums: {

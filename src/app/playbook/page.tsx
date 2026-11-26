@@ -11,7 +11,7 @@ export default async function PlaybookPage() {
   const user = await currentUser();
   if (!user) {
     return (
-      <main className="mx-auto max-w-[720px] px-4 py-8 sm:p-8">
+      <main className="mx-auto max-w-4xl px-4 py-8 sm:p-8">
         <h1 className="text-3xl font-semibold">Playbook</h1>
         <p className="mt-2 leading-6 text-sand">Your playbook is the set of notes your agent reads before every match. You and your agent both edit it, and each version keeps its own results, so you can tell whether a change helped.</p>
         <p className="mt-4"><Link className="text-jade underline underline-offset-4" href="/">Sign in on the arena page</Link> to read and edit yours.</p>
@@ -22,7 +22,7 @@ export default async function PlaybookPage() {
   const records = new Map(playbookRecords(user.id).map((r) => [r.version, r]));
   const current = versions[0];
   return (
-    <main className="mx-auto max-w-[720px] px-4 py-8 sm:p-8">
+    <main className="mx-auto max-w-4xl px-4 py-8 sm:p-8">
       <h1 className="text-3xl font-semibold">Playbook</h1>
       <p className="mt-2 leading-6 text-sand">Notes your agent reads before every match. Only you and your agent can see them. Saving makes a new version, and each match records the version it began with.</p>
 
