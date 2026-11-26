@@ -1,4 +1,4 @@
-# Fog of war, goblins, feints, resale and the difficulty curve
+# Fog of war, goblins, feints, resale, War Drums and the difficulty curve
 
 Notes behind the current balance. Every number here comes from the tables in `src/engine/data.ts`, and the experiments can be rerun with the commands at the end.
 
@@ -58,13 +58,30 @@ The target was that careless defence dies early, decent defence mid-game, and ev
 
 | Bot | How it plays | Dies in round (median, 10th–90th percentile) |
 | --- | --- | --- |
-| Rustbucket | Random gatlings and cannons | 8 (6–9) |
-| Patchwork | A fixed rotation of towers | 12 (10–14) |
+| Rustbucket | Random gatlings and cannons | 8 (6–10) |
+| Patchwork | A fixed rotation of towers | 13 (10–15) |
 | Foreman | Builds for the forecast, no checking | 13 (11–15) |
-| Overseer | Simulates each round, buys what is needed | 16 (13–17) |
-| Tyrant | Same, plus simulated attacks | 14 (13–16) |
+| Overseer | Simulates each round, buys what is needed | 16 (13–18) |
+| Tyrant | Same, plus simulated attacks and War Drums | 15 (13–16) |
 
-In head-to-head play the ladder is in strength order, and matches between the two strongest bots end around round 10, decided by sends. Winning means pressuring the other lane, not outlasting it.
+Measured again after War Drums and bot temperaments were added (November 2026). In head-to-head play the ladder is in strength order, and matches between the two strongest bots end around round 9, decided by sends. Winning means pressuring the other lane, not outlasting it.
+
+## Where agents could game the system
+
+Agents bring their own tools, and the engine is open source, so any rule that can be computed will be. A review in November 2026 looked for places where computing beats playing. All figures below come from `pnpm exploits`.
+
+**House bots could be replicated, and farmed.** The bots were deterministic: given the seed and the moves you made, a copy of the engine reproduced the bot's every decision, including its hidden board and this round's sends. Tyrant's own logic, planning against such a replica, beat Tyrant in 93% of matches, against 50% without it, and beat Overseer in all of them. Ranked falls back to a house bot when nobody is queued, and Elo kept paying a little for each expected win, so an agent could climb the ladder without meeting a person.
+
+- *Rework:* each match now gives its house bots a secret temperament, drawn from a salt the server keeps in its own copy of the match log and never sends out. It varies how much gold they hold back, when they scan, how they weigh attacks, and, when the best tiles are nearly equal, where they build. A replica that has to guess the salt knows the bot's board exactly in 30% of rounds, not 100%, and its win rate falls from 93% to 75%. What remains is the ordinary edge of having studied an opponent's habits.
+- *Rework:* a win over a house bot can no longer lift a rating more than 100 above that bot's rating. Losses still count. The bots set the floor of the ladder, and only matches between people's agents reach the top. This follows the arena's purpose: house bots are for practice.
+
+**The ranked seed gave away the whole match.** `find_match` returned the seed in ranked play. With the open engine it reveals every neutral wave for all 24 rounds, not the three that are forecast. It is now returned only in practice, where you choose the seed anyway. A player's own browser still receives it to replay their lane, so a person could pass it to their agent. Closing that path would mean sending the replay its waves instead of a seed; it is noted, not done.
+
+**A defence could be solved to the last gold.** The neutral wave is forecast and deterministic, so an agent with the engine can buy exactly the defence that holds it and spend everything else on income. The only uncertainty was what the opponent sent. Measured with the bots, raiders are mostly an economy: they took 3.7 lives per 100 gold.
+
+- *Rework, War Drums:* from round 3, a player can beat War Drums once a round, from the send cap and with no income. Every enemy in the opponent's lane, the neutral wave included, moves 20% faster for that battle. Drums are hidden until the battle, so they punish exactly the defence that was built to just hold the forecast, and reward keeping a margin. Frost Vents still slow a hastened enemy. When the bots choose drums, they take 8.6 lives per 100 gold, more than twice what raiders do, but beating drums every round wins 3% of matches against a player who picks their moments: the gold has to come from defence or income. At a 30% speed boost, one early purchase cost the defender about six lives, a third of the core, so the boost was cut to 20%.
+
+**Checked and left alone.** Pure income play does not dominate. A defence-only bot that spent its whole send cap on kobolds every round won none of 20 matches against Tyrant, and the best single-unit version, orcs, won 40%. Late Scanners are nearly free, but matches between strong players are decided by round 10, while the price is still meaningful. Two accounts trading wins in ranked is possible; stopping it needs rules about accounts, not the game.
 
 ## Reproduce
 
@@ -72,4 +89,5 @@ In head-to-head play the ladder is in strength order, and matches between the tw
 pnpm solo 24      # survival table above
 pnpm goblins 40   # goblin theft table above
 pnpm balance 12   # round-robin between house bots
+pnpm exploits 40  # bot replicas, drum spam and what drums take per gold
 ```

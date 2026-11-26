@@ -1,5 +1,6 @@
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
 import { BOTS } from "../engine/bots.ts";
+import { readStyle, type IslandStyle } from "../viewer/island-style.ts";
 import { all, get, run } from "./db.ts";
 
 export interface User {
@@ -60,6 +61,24 @@ export function login(handle: string, password: string): User | null {
 /** The seed an account's warden is drawn from. */
 export function avatarSeed(u: Pick<User, "avatar">): number {
   try { return Number(JSON.parse(u.avatar).seed) || 1; } catch { return 1; /* malformed avatar: fall back to a fixed figure */ }
+}
+
+function avatarData(u: Pick<User, "avatar">): Record<string, unknown> {
+  try { const v = JSON.parse(u.avatar); return v && typeof v === "object" ? v : {}; } catch { return {}; }
+}
+
+/** A player's island style. House bots keep the default island. */
+export function islandOf(u: Pick<User, "avatar" | "bot_level">): IslandStyle | undefined {
+  if (u.bot_level !== null) return undefined;
+  // A new account's home island is shaped by the same seed as its warden, so it is its own from the start.
+  return readStyle(avatarData(u).island, avatarSeed(u) % 1_000_000_000 || 1);
+}
+
+/** Store a style. Callers check unlocks and the match lock first. */
+export function saveIsland(userId: number, style: IslandStyle): void {
+  const u = userById(userId);
+  if (!u) return;
+  updateProfile(userId, { avatar: JSON.stringify({ ...avatarData(u), island: style }) });
 }
 
 export function userById(id: number): User | undefined {

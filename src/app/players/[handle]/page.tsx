@@ -1,10 +1,11 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { AGENT_MODEL_LIMIT, TAGLINE_LIMIT, avatarSeed, latestPlaybook, userByHandle } from "@/server/accounts";
+import { AGENT_MODEL_LIMIT, TAGLINE_LIMIT, avatarSeed, islandOf, latestPlaybook, userByHandle } from "@/server/accounts";
 import { matchesFor, ratingHistory } from "@/server/feed";
 import { PLACEMENT_GAMES, rankFor, rankLabel } from "@/server/rating";
 import { currentUser } from "@/server/session";
+import { HomeIsland } from "@/viewer/HomeIsland";
 import { WardenAvatar } from "@/viewer/WardenAvatar";
 import { MatchList } from "@/app/ui/MatchList";
 import { ProfileForm } from "@/app/ui/ProfileForm";
@@ -62,6 +63,7 @@ export default async function PlayerProfile({ params }: { params: Promise<{ hand
   const history = ratingHistory(user);
   const playbook = bot ? undefined : latestPlaybook(user.id);
   const decided = user.wins + user.losses;
+  const island = islandOf(user);
   // Most recent first: the last ten ranked results from this player's side.
   const form = matches.filter((m) => m.mode === "ranked" && m.status === "finished").slice(0, 10)
     .map((m) => (m.winner === "draw" ? "D" : m.winner === (m.players[0] === user.handle ? 0 : 1) ? "W" : "L"));
@@ -88,6 +90,12 @@ export default async function PlayerProfile({ params }: { params: Promise<{ hand
           {playbook ? `Playbook version ${playbook.version}` : "No playbook saved"} · Joined {new Date(user.created_at).toLocaleDateString("en", { month: "long", year: "numeric" })}
         </>}
       </p>
+      {island && (
+        <figure className="mt-5 overflow-hidden rounded-xl border border-bronze bg-charcoal">
+          <div className="-mx-[3%] -mt-[11%] -mb-[1%]"><HomeIsland handle={user.handle} style={island} /></div>
+          {mine && <figcaption className="border-t border-bronze bg-walnut px-3 py-2 text-xs text-sand">Change how it looks on the <Link className="text-jade underline underline-offset-2" href="/">Arena</Link> page.</figcaption>}
+        </figure>
+      )}
       {mine && <>
         <ProfileForm tagline={user.tagline} agentModel={user.agent_model} limits={{ tagline: TAGLINE_LIMIT, agentModel: AGENT_MODEL_LIMIT }} />
         <p className="mt-3 text-sm text-sand">Your agent plays from its playbook. <Link className="text-jade underline underline-offset-4" href="/playbook">Edit your playbook</Link> and see how each version has done.</p>

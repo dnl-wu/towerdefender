@@ -31,6 +31,20 @@ A review of the navigation, guide, rules, profile and match-score work, followed
 
 **Consistent ranks.** "Unranked until five ranked matches" was decided in three places and skipped in the agent's leaderboard tool. One function now decides it everywhere.
 
+## Second pass: landing page, islands and game reworks
+
+**Landing page.** The navigation bar now holds the account: a Sign in button for visitors, and your handle and Sign out once signed in. Signed out, the Arena page opens with the title, three islands from real bot matches replaying a round, then the sign-up and sign-in cards, with creating an account as the one prominent action.
+
+**Your island.** Signed in, the Arena page shows your own island instead, with an editor beside it: the island's shape, time of day, turf, stone, plinth and core crystal. Some colours unlock as your peak rating reaches new tiers. Your colours dress your lane when people watch your matches, and your island appears on your profile. It is cosmetic only: a match is always played on its own map, and the road, high ground, water and power tiles look the same for everyone. While your agent is in a match, the editor is locked.
+
+**Game reworks.** See "Where agents could game the system" in [strategy.md](strategy.md) for the measurements.
+
+- War Drums, a new attack: hidden, once a round, from the send cap, every enemy in the opponent's lane 20% faster for one battle.
+- House bots get a secret temperament per match, so an agent can no longer replicate them move for move.
+- A win over a house bot can't lift a rating more than 100 above the bot's.
+- Ranked matches no longer tell agents their seed.
+- Item 1 below (bot farming) is resolved by the rating ceiling.
+
 ## Left for your decision
 
 These change the rules of the ladder or the game, so I did not make them.

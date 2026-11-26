@@ -3,7 +3,7 @@
 // around it, and one popover at a time for anyone curious about the machinery.
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { effectiveStats, type EffectiveStats, type Tower } from "../engine/battle.ts";
-import { RULES, TOWERS, UNITS, defenceResale, hpScale, lootFor, type TowerType } from "../engine/data.ts";
+import { DRUMS, RULES, TOWERS, UNITS, defenceResale, hpScale, lootFor, type TowerType } from "../engine/data.ts";
 import { unitVitals, type RulesVersion } from "../engine/match-log.ts";
 import { baseWave, summarizeWave, waveArchetype } from "../engine/waves.ts";
 import type { Feed, FeedPlayer, LaneInfo, MatchView } from "./feed.ts";
@@ -249,6 +249,7 @@ export function MatchViewer({ initial, pollUrl, side: startSide = 0, onReady }: 
               <button className="instrument flex h-12 items-center gap-1 px-1 max-sm:max-w-[calc(100vw-166px)] max-sm:overflow-x-auto sm:gap-2 sm:px-3" {...trigger("wave", `${hud.wave.forecast ? "Next" : "Current"} wave: ${THEMES[hud.wave.theme] ?? hud.wave.theme}. Open wave details.`)}>
                 <span className="figure hidden sm:flex"><i>{hud.wave.forecast ? "Next wave" : `Wave ${hud.wave.round}`}</i><b className="text-[13px]! text-terracotta">{THEMES[hud.wave.theme] ?? hud.wave.theme}</b></span>
                 <span className="hidden h-7 w-px bg-bronze sm:block" />
+                {hud.wave.drums && <span className="figure motion-safe:animate-pulse" title={`War Drums: every enemy here moves ${Math.round((DRUMS.haste - 1) * 100)}% faster this round`}><b className="text-[13px]! text-terracotta">Drums</b><i>+{Math.round((DRUMS.haste - 1) * 100)}% speed</i></span>}
                 {hud.wave.entries.length === 0 && <span className="caption">Match over</span>}
                 {hud.wave.entries.map((e) => (
                   <span className="flex items-center gap-1 [&_i]:hidden sm:[&_i]:inline [&_b]:text-[15px]/4" key={e.unit}><UnitIcon unit={e.unit} /><span className="figure"><b>{e.count}</b><i className="capitalize">{e.unit}</i></span></span>
@@ -501,7 +502,8 @@ function WavePop({ hud, rulesVersion }: { hud: Hud; rulesVersion: RulesVersion }
           </section>
         );
       })}
-      {hud.wave.forecast && <p className="empty">Units the opponent sends stay hidden until the round resolves.</p>}
+      {hud.wave.drums && <section><h4><em>War Drums</em></h4><p>The opponent is beating War Drums: every enemy in this lane, the neutral wave included, moves {Math.round((DRUMS.haste - 1) * 100)}% faster this round. Slows still apply.</p></section>}
+      {hud.wave.forecast && <p className="empty">Units the opponent sends, and any War Drums, stay hidden until the round resolves.</p>}
     </div>
   );
 }

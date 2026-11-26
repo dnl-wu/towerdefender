@@ -95,9 +95,17 @@ interface TowerRuntime {
 
 export interface CoreHit { tick: number; unit: UnitType; source: Enemy["source"] }
 
+/** Things that change a whole battle, bought by the attacking player. */
+export interface BattleMods {
+  /** Speed multiplier for every enemy in the lane (War Drums). */
+  haste?: number;
+}
+
 export interface Battle {
   map: GameMap;
   round: number;
+  /** Speed multiplier for every enemy, 1 unless War Drums were beaten against this lane. */
+  haste: number;
   t: number;
   tick: number;
   enemies: Enemy[];
@@ -122,14 +130,14 @@ export interface Battle {
   contacts: Set<number>;
 }
 
-export function createBattle(map: GameMap, towers: Tower[], groups: SpawnGroup[], round: number): Battle {
+export function createBattle(map: GameMap, towers: Tower[], groups: SpawnGroup[], round: number, mods: BattleMods = {}): Battle {
   const queue: Battle["queue"] = [];
   for (const g of groups) for (let i = 0; i < g.count; i++) queue.push({ at: g.start + i * g.gap, unit: g.unit, source: g.source });
   // Stable order: by time, ties broken by original position.
   const indexed = queue.map((q, i) => ({ q, i }));
   indexed.sort((a, b) => a.q.at - b.q.at || a.i - b.i);
   return {
-    map, round, t: 0, tick: 0, enemies: [],
+    map, round, haste: mods.haste ?? 1, t: 0, tick: 0, enemies: [],
     towers: towers.map((tower) => ({ tower, stats: effectiveStats(tower, map, towers), cooldown: 0, dmg: 0, kills: 0, shots: 0, overkill: 0 })),
     queue: indexed.map((x) => x.q), queueIdx: 0, nextId: 1, done: false, livesLost: 0, stolen: 0, bounty: 0,
     routeLen: { ground: map.path.length - 1, air: flightLength(map) },
@@ -268,7 +276,7 @@ export function stepBattle(b: Battle): BattleEvent[] {
       if (!en.alive) continue;
     }
     const slow = en.slowUntil > b.t ? en.slow * (1 - def.slowResist) : 0;
-    en.dist += def.speed * (1 - slow) * dt;
+    en.dist += def.speed * b.haste * (1 - slow) * dt;
     const len = def.flying ? b.routeLen.air : b.routeLen.ground;
     if (en.dist >= len) {
       reachCore(b, en, events);
@@ -416,8 +424,8 @@ export function battleResult(b: Battle): BattleResult {
   };
 }
 
-export function runBattle(map: GameMap, towers: Tower[], groups: SpawnGroup[], round: number): BattleResult {
-  const b = createBattle(map, towers, groups, round);
+export function runBattle(map: GameMap, towers: Tower[], groups: SpawnGroup[], round: number, mods: BattleMods = {}): BattleResult {
+  const b = createBattle(map, towers, groups, round, mods);
   while (!b.done) stepBattle(b);
   return battleResult(b);
 }

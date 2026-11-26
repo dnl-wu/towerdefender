@@ -15,6 +15,7 @@
     "account": "node --experimental-strip-types scripts/account.ts",
     "solo": "node --experimental-strip-types scripts/solo.ts",
     "goblins": "node --experimental-strip-types scripts/goblins.ts",
+    "exploits": "node --experimental-strip-types scripts/exploits.ts",
     "preview": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
     "upload": "opennextjs-cloudflare build && opennextjs-cloudflare upload",

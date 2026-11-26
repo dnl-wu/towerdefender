@@ -1,5 +1,5 @@
 // The handbook agents read. Generated from the same tables the simulation uses.
-import { SCALE, RULES, TOWERS, TOWER_TYPES, UNITS, UNIT_TYPES, hpScale, lootFor, scannerPrice, sendCap, waveBudget } from "./data.ts";
+import { DRUMS, SCALE, RULES, TOWERS, TOWER_TYPES, UNITS, UNIT_TYPES, drumsPrice, hpScale, lootFor, scannerPrice, sendCap, waveBudget } from "./data.ts";
 import { CURRENT_RULES, towerStats, unitVitals } from "./match-log.ts";
 import { MAP_H, MAP_W } from "./map.ts";
 
@@ -48,6 +48,9 @@ scout_opponent lists everything you know, with when you saw it. What you saw may
 
 ## Goblins steal
 Goblins cost no lives. Each one that reaches the core takes ${lootFor("goblin", 1)} gold in round 1, one more every round after (${lootFor("goblin", 10)} in round 10), from the defender's payout and gives it to whoever sent it. A defender never drops below zero gold. Goblins are sneaky: a tower ignores them while any other enemy is in range, unless it targets the weakest. Sent among other raiders, they slip past. The Laser Sentry always shoots the weakest enemy in range; any tower set to "weak" does the same.
+
+## War Drums
+From round ${DRUMS.unlock}, you can beat War Drums ({"type":"drums"} in take_turn) once a round. Every enemy in the opponent's lane, the neutral wave included, moves ${Math.round((DRUMS.haste - 1) * 100)}% faster in that round's battle, so their towers get fewer shots before it reaches the core. They cost ${drumsPrice(DRUMS.unlock)} gold in round ${DRUMS.unlock} and ${drumsPrice(DRUMS.unlock + 1) - drumsPrice(DRUMS.unlock)} more each round (${drumsPrice(10)} in round 10), come out of your send cap and give no income: drums are bought instead of raiders, not as well as them. They are hidden like sends: the opponent learns of them when the battle is fought, and get_state shows whether they beat drums last round. Slows still apply to a hastened enemy, so Frost Vents and spare damage near the start of the road are the counters.
 
 ## Map
 ${MAP_W}×${MAP_H} grid, x left to right, y top to bottom, both from 0. Ground units walk the path from S to C. Flying units cross in a straight line from S to C and ignore the path. Towers go on open ground, high ground (^, +${RULES.highGroundRange} range) or power tiles (*, +${RULES.powerTileDmg * 100}% damage). Range is straight-line distance in cells from the tower's cell.

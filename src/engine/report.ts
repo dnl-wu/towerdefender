@@ -1,7 +1,7 @@
 // Feedback: what an agent hears after every round, and the debrief after a match.
 // Notes are written to be acted on, by the agent mid-match and by the human
 // tuning the agent afterwards.
-import { TOWERS, UNITS, type TowerType, type UnitType } from "./data.ts";
+import { DRUMS, TOWERS, UNITS, type TowerType, type UnitType } from "./data.ts";
 import type { DuelState, RoundRecord, Winner } from "./duel.ts";
 import { waveArchetype } from "./waves.ts";
 
@@ -51,6 +51,8 @@ export function roundReport(state: DuelState, player: 0 | 1, rec: RoundRecord) {
   }
   if (lane.intel.newlySeen.length) notes.push(`Your raiders revealed ${plural(lane.intel.newlySeen.length, "enemy tower")}. scout_opponent lists everything you know about their base.`);
   else if (mySent === 0 && !Object.keys(lane.intel.towers).length) notes.push("You know nothing about their base yet. Raiders you send reveal the towers that shoot them; a Scanner reveals everything.");
+  if (opp.drums) notes.push(`The opponent beat War Drums: everything in your lane moved ${Math.round((DRUMS.haste - 1) * 100)}% faster this round. Frost Vents and spare damage early on the road blunt them.`);
+  if (me.drums) notes.push(`Your War Drums drove their lane ${Math.round((DRUMS.haste - 1) * 100)}% faster. They lost ${plural(opp.battle.livesLost, "life")} this round.`);
   if (me.goldStolen > 0) notes.push(`Your goblins stole ${me.goldStolen} gold from the opponent.`);
   else if (me.sent.some((o) => UNITS[o.unit].loot)) notes.push("Every goblin you sent was caught before it reached the core.");
   if (me.battle.livesLost === 0 && me.goldAfter > 250 && state.status === "planning") notes.push(`You are holding ${me.goldAfter} gold. Unspent gold earns nothing.`);
@@ -67,7 +69,8 @@ export function roundReport(state: DuelState, player: 0 | 1, rec: RoundRecord) {
       towers,
     },
     opponentSentYou: opp.sent.map((o) => ({ unit: o.unit, units: o.orders * UNITS[o.unit].send.count })),
-    yourSends: { sent: me.sent.map((o) => ({ unit: o.unit, units: o.orders * UNITS[o.unit].send.count })), goldSpent: me.sendSpent, livesTaken: opp.battle.leakedLives.send },
+    opponentBeatDrums: opp.drums,
+    yourSends: { sent: me.sent.map((o) => ({ unit: o.unit, units: o.orders * UNITS[o.unit].send.count })), drums: me.drums, goldSpent: me.sendSpent, livesTaken: opp.battle.leakedLives.send },
     // Only what is public. Their leaks, gold and income are not.
     opponent: { livesLost: opp.battle.livesLost, livesNow: opp.livesAfter },
     // Towers that struck your raiders this round are now on your map of their base.
@@ -106,6 +109,7 @@ interface SideEconomy {
   towerGold: number;
   sendGold: number;
   scannerGold?: number;
+  drumsGold?: number; // Older persisted debriefs predate War Drums.
   goldStolen?: number; // Older persisted debriefs predate goblins.
   goldLost?: number;
   bounty: number;
@@ -198,6 +202,16 @@ export function debrief(state: DuelState, player: 0 | 1): Debrief {
   else if (me.totals.livesTaken === 0) findings.push(`You spent ${me.totals.sendGold} gold on sends and took no lives. They still paid for themselves as income if bought early, but none of them tested a weakness.`);
   if (me.totals.goldLost >= 40) findings.push(`Goblins stole ${me.totals.goldLost} gold from you over the match. Counter: ${counterHint("goblin")}`);
   if (me.totals.goldStolen > 0) findings.push(`Your goblins stole ${me.totals.goldStolen} gold.`);
+  const drummed = state.history.filter((r) => r.sides[player].drums);
+  if (drummed.length) {
+    const lost = drummed.reduce((n, r) => n + r.sides[other].battle.livesLost, 0);
+    findings.push(`You beat War Drums in ${plural(drummed.length, "round")} (${drummed.map((r) => r.round).join(", ")}) for ${me.totals.drumsGold} gold; the opponent lost ${plural(lost, "life")} in those rounds.`);
+  }
+  const against = state.history.filter((r) => r.sides[other].drums);
+  if (against.length) {
+    const lost = against.reduce((n, r) => n + r.sides[player].battle.livesLost, 0);
+    findings.push(`The opponent beat War Drums in ${plural(against.length, "round")} (${against.map((r) => r.round).join(", ")}); you lost ${plural(lost, "life")} in those rounds.`);
+  }
   if (opp.income > me.income * 1.5 && state.history.length >= 6) findings.push(`The opponent finished with ${opp.income} income against your ${me.income}. They out-earned you for most of the match.`);
   const weak = towers.filter((t) => t.gold >= 150 && t.type !== "beacon" && t.type !== "frost").sort((a, b) => a.damagePerGold - b.damagePerGold)[0];
   const strong = towers[0];
@@ -205,7 +219,7 @@ export function debrief(state: DuelState, player: 0 | 1): Debrief {
     findings.push(`Your ${TOWERS[weak.type].name} towers returned ${weak.damagePerGold} damage per gold against ${strong.damagePerGold} for your ${TOWERS[strong.type].name} towers. Check their placement and whether the waves called for them.`);
   }
 
-  const econ = (l: typeof me): SideEconomy => ({ towerGold: l.totals.towerGold, sendGold: l.totals.sendGold, scannerGold: l.totals.scannerGold, goldStolen: l.totals.goldStolen, goldLost: l.totals.goldLost, bounty: l.totals.bounty, finalIncome: l.income, livesTaken: l.totals.livesTaken });
+  const econ = (l: typeof me): SideEconomy => ({ towerGold: l.totals.towerGold, sendGold: l.totals.sendGold, scannerGold: l.totals.scannerGold, drumsGold: l.totals.drumsGold, goldStolen: l.totals.goldStolen, goldLost: l.totals.goldLost, bounty: l.totals.bounty, finalIncome: l.income, livesTaken: l.totals.livesTaken });
   return {
     result, endReason: state.endReason ?? "", rounds: state.history.length, turningPoint, timeline,
     economy: { you: econ(me), opponent: econ(opp) },

@@ -12,7 +12,7 @@ import { debrief, type Debrief } from "../engine/report.ts";
 import { bots, latestPlaybook, userById, type User } from "./accounts.ts";
 import { durableHost } from "./host.ts";
 import { all, get, run } from "./db.ts";
-import { nextRating } from "./rating.ts";
+import { BOT_CEILING, nextRating } from "./rating.ts";
 
 export type Mode = "ranked" | "practice";
 
@@ -44,6 +44,8 @@ export interface LiveMatch {
   calls: [number, number];
   /** Each player's most recent MCP call, saved with the active turn. */
   lastCall: [number | null, number | null];
+  /** Secret seed for the house bots' temperament in this match. */
+  botSalt: number;
 }
 
 interface QueueEntry {
@@ -104,6 +106,7 @@ function restoreMatch(row: MatchRow): LiveMatch {
   return {
     id: row.id, mode: row.mode, state, users, botLevels, deadline: 0, timer: null,
     waiters: new Set(), misses: [0, 0], acted: [false, false], calls: [row.calls0, row.calls1], lastCall: [null, null],
+    botSalt: readMatchLog(row.log).botSalt ?? 0,
   };
 }
 
@@ -130,7 +133,7 @@ function persist(m: LiveMatch) {
   const s = m.state;
   run(
     "UPDATE matches SET log = ?, resolved_rounds = ?, lives0 = ?, lives1 = ?, calls0 = ?, calls1 = ? WHERE id = ?",
-    writeMatchLog(s), s.history.length, s.lanes[0].lives, s.lanes[1].lives, m.calls[0], m.calls[1], m.id,
+    writeMatchLog(s, m.botSalt), s.history.length, s.lanes[0].lives, s.lanes[1].lives, m.calls[0], m.calls[1], m.id,
   );
   if (s.status === "planning") {
     const snapshot = { misses: m.misses, acted: m.acted, committed: s.lanes.map(l => l.committed), lastCall: m.lastCall };
@@ -172,7 +175,7 @@ function openRound(m: LiveMatch) {
   for (const p of [0, 1] as const) {
     const level = m.botLevels[p];
     if (level === null) continue;
-    playBotTurn(m.state, p, level, snapshotOpponent(m.state, p));
+    playBotTurn(m.state, p, level, snapshotOpponent(m.state, p), m.botSalt);
     commit(m.state, p);
   }
   armClock(m);
@@ -223,7 +226,13 @@ function finish(m: LiveMatch) {
     const sc = score(p);
     if (m.mode === "ranked") {
       // House bots are fixed points on the ladder: they record results but never move.
-      if (u.bot_level === null) after[p] = nextRating(before[p], before[1 - p], sc, u.games);
+      if (u.bot_level === null) {
+        after[p] = nextRating(before[p], before[1 - p], sc, u.games);
+        // Nor can they carry anyone far past them: above a bot's rating plus the ceiling, beating it earns nothing.
+        // Losses still count. Beyond that, the ladder is climbed against other people's agents.
+        const other = players[1 - p];
+        if (other.bot_level !== null && after[p] > before[p]) after[p] = Math.max(before[p], Math.min(after[p], other.rating + BOT_CEILING));
+      }
       const streak = sc === 1 ? Math.max(1, u.streak + 1) : sc === 0 ? Math.min(-1, u.streak - 1) : 0;
       run(
         "UPDATE users SET rating = ?, peak_rating = MAX(peak_rating, ?), games = games + 1, wins = wins + ?, losses = losses + ?, draws = draws + ?, streak = ? WHERE id = ?",
@@ -249,10 +258,11 @@ function create(mode: Mode, a: User, b: User, seed?: number): LiveMatch {
   const m: LiveMatch = {
     id, mode, state: createDuel(matchSeed), users: [a.id, b.id], botLevels: [a.bot_level, b.bot_level],
     deadline: 0, timer: null, waiters: new Set(), misses: [0, 0], acted: [false, false], calls: [0, 0], lastCall: [null, null],
+    botSalt: randomBytes(4).readUInt32LE(0),
   };
   run(
     "INSERT INTO matches (id, seed, mode, status, p0, p1, log, lives0, lives1, playbook0, playbook1, created_at) VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?)",
-    id, matchSeed, mode, a.id, b.id, writeMatchLog(m.state), m.state.lanes[0].lives, m.state.lanes[1].lives,
+    id, matchSeed, mode, a.id, b.id, writeMatchLog(m.state, m.botSalt), m.state.lanes[0].lives, m.state.lanes[1].lives,
     latestPlaybook(a.id)?.version ?? null, latestPlaybook(b.id)?.version ?? null, Date.now(),
   );
   arena().live.set(id, m);

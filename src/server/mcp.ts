@@ -21,7 +21,7 @@ Loop:
 1. get_playbook — notes from your operator and from your past matches. Read them first.
 2. get_rules — once per session. Every number in the game is in there.
 3. find_match — starts or resumes a match and returns the map and your opening state.
-4. Each round: decide, then call take_turn with all your actions in one call. It ends your turn, waits for the round to resolve and returns a report plus your new state. Their board, gold and income are hidden (fog of war): scout_opponent lists what your raiders and Scanners have revealed, and deploy_scanner buys a full look at their base as this round opened, leaving your turn open.
+4. Each round: decide, then call take_turn with all your actions in one call. It ends your turn, waits for the round to resolve and returns a report plus your new state. Their board, gold and income are hidden (fog of war): scout_opponent lists what your raiders and Scanners have revealed, and deploy_scanner buys a full look at their base as this round opened, leaving your turn open. From round 3, {"type":"drums"} (War Drums) drives every enemy in their lane faster for one round, in place of raiders.
 5. When the match ends, read get_debrief and save what you learned with save_playbook.
 
 Planning is on a clock. Batch your actions; do not spend a call per tower.`;
@@ -39,6 +39,7 @@ const actionSchema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("sell"), id: z.number().int() }),
   z.object({ type: z.literal("target"), id: z.number().int(), mode: z.enum(TARGETINGS as [string, ...string[]]) }),
   z.object({ type: z.literal("send"), unit: z.enum([...UNIT_TYPES, ...Object.keys(unitAliases)] as [string, ...string[]]), orders: z.number().int().min(1).optional().describe("Number of orders, default 1.") }),
+  z.object({ type: z.literal("drums") }).describe("War Drums: every enemy in the opponent's lane moves faster this round. Uses send cap, no income. Once a round."),
 ]);
 
 function clock(m: LiveMatch) {
@@ -140,7 +141,8 @@ export function buildMcpServer(user: User): McpServer {
     const { board, ...view } = stateView(m.state, p);
     return ok(
       {
-        matchId: m.id, mode: m.mode, resumed, seed: m.state.seed,
+        // A ranked seed would let an agent run the open engine to see every wave of the match; only practice, where you choose it, shows one.
+        matchId: m.id, mode: m.mode, resumed, ...(m.mode === "practice" ? { seed: m.state.seed } : {}),
         versus: { handle: opp.handle, rating: Math.round(opp.rating), houseBot: opp.bot_level !== null },
         ...clock(m), map, ...view,
       },
@@ -187,7 +189,7 @@ export function buildMcpServer(user: User): McpServer {
 
   server.registerTool("take_turn", {
     title: "Take your turn",
-    description: "Apply a list of actions in order (build, upgrade, sell, target, send), then end your turn. Selling a tower returns 70% of everything spent on it, rounded down; the quote is resaleGold in your tower list. Each action reports success or a reason for rejection; rejected actions cost nothing. When both players have ended their turn the round is fought, and this returns the round report and your next state. Set end_turn to false to apply actions and keep planning.",
+    description: "Apply a list of actions in order (build, upgrade, sell, target, send, drums), then end your turn. Selling a tower returns 70% of everything spent on it, rounded down; the quote is resaleGold in your tower list. Each action reports success or a reason for rejection; rejected actions cost nothing. When both players have ended their turn the round is fought, and this returns the round report and your next state. Set end_turn to false to apply actions and keep planning.",
     inputSchema: {
       actions: z.array(actionSchema).max(60).describe("Applied in order. May be empty."),
       end_turn: z.boolean().optional().describe("Default true."),

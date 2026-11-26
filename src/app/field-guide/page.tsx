@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { RULES, SCALE, TOWERS, TOWER_TYPES, UNITS, UNIT_TYPES, type TowerStats, type TowerType } from "@/engine/data";
+import { DRUMS, RULES, SCALE, TOWERS, TOWER_TYPES, UNITS, UNIT_TYPES, drumsPrice, scannerPrice, type TowerStats, type TowerType } from "@/engine/data";
 import { TowerIcon, UnitIcon } from "@/viewer/PieceIcon";
 
 export const metadata: Metadata = { title: "Troops & towers · Tower Defender" };
@@ -27,6 +27,7 @@ export default function FieldGuide() {
       <nav aria-label="Guide sections" className="my-6 flex gap-5 text-sm font-medium text-jade">
         <a href="#troops" className="underline underline-offset-4">Troops ({UNIT_TYPES.length})</a>
         <a href="#towers" className="underline underline-offset-4">Towers ({TOWER_TYPES.length})</a>
+        <a href="#tactics" className="underline underline-offset-4">Tactics (2)</a>
       </nav>
       <section id="troops" className="scroll-mt-4">
         <h2 className="text-xl font-semibold">Troops</h2>
@@ -87,6 +88,30 @@ export default function FieldGuide() {
               </article>
             );
           })}
+        </div>
+      </section>
+      <section id="tactics" className="mt-10 scroll-mt-4">
+        <h2 className="text-xl font-semibold">Tactics</h2>
+        <p className="mt-1 text-sm text-sand">Bought during planning, once a round each, and paid for from the same purse as everything else.</p>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          <article id="scanner" className="guide-card scroll-mt-4">
+            <header><div><h3>Scanner</h3><p>Intel · {scannerPrice(1)} gold in round 1</p></div></header>
+            <p>Shows the opponent&apos;s whole base as it stood when the round opened, and forgets towers that are gone. Your turn stays open, so you can act on what it shows.</p>
+            <dl>
+              <Stat label="Price">{scannerPrice(1) - scannerPrice(2)} less each round</Stat>
+              <Stat label="Floor">{scannerPrice(RULES.maxRounds)} gold</Stat>
+              <Stat label="Send cap">Not used</Stat>
+            </dl>
+          </article>
+          <article id="drums" className="guide-card scroll-mt-4">
+            <header><div><h3>War Drums</h3><p>Pressure · from round {DRUMS.unlock}</p></div></header>
+            <p>Every enemy in the opponent&apos;s lane, the neutral wave included, moves faster for one battle. Hidden until it is fought. Slows still apply, so Frost Vents blunt them.</p>
+            <dl>
+              <Stat label="Speed">+{Math.round((DRUMS.haste - 1) * 100)}%</Stat>
+              <Stat label="Price">{drumsPrice(DRUMS.unlock)}g, +{drumsPrice(DRUMS.unlock + 1) - drumsPrice(DRUMS.unlock)} a round</Stat>
+              <Stat label="Send cap">Used, no income</Stat>
+            </dl>
+          </article>
         </div>
       </section>
     </main>

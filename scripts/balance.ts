@@ -2,12 +2,13 @@
 import { BOTS, playBotTurn, snapshotOpponent } from "../src/engine/bots.ts";
 import { commit, createDuel, resolveRound } from "../src/engine/duel.ts";
 
+/** A whole match between two house bots. Each side gets a salt, as in the arena, so the bots play as they do live. */
 export function playBotMatch(seed: number, a: number, b: number) {
   const state = createDuel(seed);
   while (state.status === "planning") {
     const snaps = [snapshotOpponent(state, 0), snapshotOpponent(state, 1)];
-    playBotTurn(state, 0, a, snaps[0]);
-    playBotTurn(state, 1, b, snaps[1]);
+    playBotTurn(state, 0, a, snaps[0], seed * 2 + 1);
+    playBotTurn(state, 1, b, snaps[1], seed * 2 + 2);
     commit(state, 0);
     commit(state, 1);
     resolveRound(state);

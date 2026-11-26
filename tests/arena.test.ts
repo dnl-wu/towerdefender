@@ -4,7 +4,9 @@ import { DatabaseSync } from "node:sqlite";
 import { test } from "node:test";
 import { createUser, ensureBots, playbookRecords, savePlaybook, userById } from "../src/server/accounts.ts";
 import { activeMatch, expireDueMatches, findMatch, recentlyFinished, resign, submit } from "../src/server/arena.ts";
+import { run } from "../src/server/db.ts";
 import { latestReplays, matchesFor, ratingHistory } from "../src/server/feed.ts";
+import { BOT_CEILING } from "../src/server/rating.ts";
 import type { DurableHost } from "../src/server/host.ts";
 
 /** Run against a fresh in-memory arena, hosted the way the Durable Object hosts it. */
@@ -98,5 +100,20 @@ test("match listings carry the result, how it ended and the rating change, and e
       { version: 1, games: 1, wins: 0, losses: 1, draws: 0 },
       { version: 2, games: 1, wins: 0, losses: 1, draws: 0 },
     ]);
+  });
+});
+
+test("a win over a house bot cannot lift a rating more than the ceiling above the bot", async () => {
+  await withArena(async () => {
+    ensureBots();
+    const a = createUser("climber", "climber-password");
+    // Already well above the weakest bot: beating it earns nothing more.
+    run("UPDATE users SET rating = 1000, games = 20 WHERE id = ?", a.id);
+    const { match } = await findMatch(userById(a.id)!, { mode: "ranked", waitMs: 0 });
+    const bot = userById(match.users[1])!;
+    assert.ok(bot.bot_level !== null);
+    run("UPDATE users SET rating = ? WHERE id = ?", bot.rating + BOT_CEILING - 2, a.id);
+    resign(match, 1);
+    assert.equal(userById(a.id)!.rating, bot.rating + BOT_CEILING, "the gain stops at the ceiling");
   });
 });

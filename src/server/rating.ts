@@ -2,6 +2,8 @@
 
 export const START_RATING = 1000;
 export const PLACEMENT_GAMES = 5;
+/** A win over a house bot can lift a rating at most this far above the bot's own. */
+export const BOT_CEILING = 100;
 
 /** The rank shown beside a handle. People are unranked until their placement games are played; house bots always show their tier. */
 export function rankLabel(u: { rating: number; games: number; bot_level: number | null }): string {

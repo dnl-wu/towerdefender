@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { playBotMatch } from "../scripts/balance.ts";
+import { playTurtleTurn } from "../src/engine/bots.ts";
 import { runBattle, type Tower } from "../src/engine/battle.ts";
-import { RULES, UNITS, lootFor, scannerPrice, sendCap } from "../src/engine/data.ts";
-import { applyAction, commit, createDuel, endKind, forfeit, replayDuel, resolveRound } from "../src/engine/duel.ts";
+import { DRUMS, RULES, UNITS, drumsPrice, lootFor, scannerPrice, sendCap } from "../src/engine/data.ts";
+import { applyAction, commit, createDuel, endKind, forfeit, laneBattle, replayDuel, resolveRound } from "../src/engine/duel.ts";
 import { readMatchLog, writeMatchLog } from "../src/engine/match-log.ts";
 import { generateMap, isBuildable } from "../src/engine/map.ts";
 import { scoutView, stateView } from "../src/engine/view.ts";
@@ -386,4 +387,68 @@ test("every way a match can end is told apart", () => {
   assert.equal(ended((s) => { s.lanes[0].lives = 999; s.lanes[1].lives = 999; s.round = RULES.maxRounds; fight(s); }), "round-limit");
   assert.equal(ended((s) => forfeit(s, 0, "Resigned.")), "resigned");
   assert.equal(ended((s) => forfeit(s, 0, "Forfeit: 3 turns in a row expired with no actions.")), "forfeit");
+});
+
+test("War Drums: unlock in round 3, once a round, from the send cap, and hidden until the battle", () => {
+  const s = createDuel(11);
+  for (const lane of s.lanes) lane.lives = 999; // Undefended lanes would otherwise fall before drums unlock.
+  assert.equal(applyAction(s, 0, { type: "drums" }).ok, false, "not before they unlock");
+  for (let r = 1; r < DRUMS.unlock; r++) { commit(s, 0); commit(s, 1); resolveRound(s); }
+  const gold = s.lanes[0].gold;
+  assert.ok(applyAction(s, 0, { type: "drums" }).ok);
+  assert.equal(s.lanes[0].gold, gold - drumsPrice(s.round));
+  assert.equal(s.lanes[0].sendSpent, drumsPrice(s.round), "drums come out of the send cap");
+  assert.equal(s.lanes[0].income, RULES.baseIncome, "and give no income");
+  assert.equal(applyAction(s, 0, { type: "drums" }).ok, false, "once a round");
+  // The opponent cannot see them while planning.
+  assert.equal(stateView(s, 1).opponent.beatDrumsLastRound, false);
+  assert.deepEqual(laneBattle(s, 1).mods, { haste: DRUMS.haste });
+  assert.deepEqual(laneBattle(s, 0).mods, {}, "drums only drive the opponent's lane");
+  commit(s, 0); commit(s, 1);
+  const rec = resolveRound(s);
+  assert.equal(rec.sides[0].drums, true);
+  assert.equal(stateView(s, 1).opponent.beatDrumsLastRound, true, "revealed once the battle is fought");
+  assert.equal(roundReport(s, 1, rec).opponentBeatDrums, true);
+  assert.equal(s.lanes[0].drums, false, "they last one round");
+});
+
+test("War Drums drive enemies faster: an undefended lane is reached sooner", () => {
+  const s = createDuel(12);
+  const groups = baseWave(s.seed, 3);
+  const calm = runBattle(s.map, [], groups, 3), drummed = runBattle(s.map, [], groups, 3, { haste: DRUMS.haste });
+  assert.equal(drummed.livesLost, calm.livesLost);
+  assert.ok(drummed.duration < calm.duration);
+  // And a defence built to just hold the wave at walking pace can break when the wave runs.
+  let found = false;
+  for (let seed = 1; seed <= 40 && !found; seed++) {
+    const d = createDuel(seed);
+    for (const lane of d.lanes) lane.lives = 999;
+    for (let r = 1; r <= 4 && !found; r++) {
+      playTurtleTurn(d, 0);
+      const wave = baseWave(d.seed, d.round);
+      const walking = runBattle(d.map, d.lanes[0].towers, wave, d.round).livesLost;
+      found = walking === 0 && runBattle(d.map, d.lanes[0].towers, wave, d.round, { haste: DRUMS.haste }).livesLost > 0;
+      commit(d, 0); commit(d, 1); resolveRound(d);
+    }
+  }
+  assert.ok(found, "drums should be able to turn a holding defence into a leaking one");
+});
+
+test("a match with War Drums replays identically from its log", () => {
+  const s = createDuel(21);
+  for (const lane of s.lanes) lane.lives = 999;
+  for (let r = 1; r <= 6; r++) {
+    if (r >= DRUMS.unlock) applyAction(s, r % 2 as 0 | 1, { type: "drums" });
+    applyAction(s, 0, { type: "send", unit: "kobold" });
+    commit(s, 0); commit(s, 1); resolveRound(s);
+  }
+  // Replay the recorded orders from scratch, with the same spare lives.
+  const again = createDuel(21);
+  for (const lane of again.lanes) lane.lives = 999;
+  for (const round of s.log.slice(0, s.history.length)) {
+    for (const p of [0, 1] as const) for (const a of round[p]) assert.ok(applyAction(again, p, a).ok);
+    commit(again, 0); commit(again, 1); resolveRound(again);
+  }
+  assert.deepEqual(again.lanes.map((l) => [l.lives, l.gold, l.income]), s.lanes.map((l) => [l.lives, l.gold, l.income]));
+  assert.deepEqual(again.history.map((r) => r.sides.map((x) => x.drums)), s.history.map((r) => r.sides.map((x) => x.drums)));
 });

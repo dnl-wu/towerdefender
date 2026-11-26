@@ -21,7 +21,11 @@ export function canonicalAction(action: Action): Action {
   return action;
 }
 
-type MatchLog = { rulesVersion: RulesVersion; rounds: DuelState["log"] };
+/**
+ * A stored match. `botSalt` seeds the house bots' temperament for this match.
+ * It lives only in the server's copy and is never sent to a browser or an agent.
+ */
+type MatchLog = { rulesVersion: RulesVersion; rounds: DuelState["log"]; botSalt?: number };
 
 export function readMatchLog(json: string): MatchLog {
   const stored: MatchLog | DuelState["log"] = JSON.parse(json);
@@ -30,8 +34,8 @@ export function readMatchLog(json: string): MatchLog {
   return { rulesVersion: 1, rounds };
 }
 
-export function writeMatchLog(state: DuelState): string {
-  return JSON.stringify({ rulesVersion: state.map.rulesVersion, rounds: state.log } satisfies MatchLog);
+export function writeMatchLog(state: DuelState, botSalt?: number): string {
+  return JSON.stringify({ rulesVersion: state.map.rulesVersion, rounds: state.log, botSalt } satisfies MatchLog);
 }
 
 const originalHP: Record<UnitType, number> = {

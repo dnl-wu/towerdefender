@@ -6,7 +6,7 @@
 import { endKind, type EndKind } from "../engine/duel.ts";
 import { readMatchLog } from "../engine/match-log.ts";
 import type { Feed, FeedPlayer, MatchSummary, MatchView } from "../viewer/feed.ts";
-import { avatarSeed, userById, type User } from "./accounts.ts";
+import { avatarSeed, islandOf, userById, type User } from "./accounts.ts";
 import { liveMatch, matchRow, rebuild, type MatchRow } from "./arena.ts";
 import { laneOf } from "./lane.ts";
 import { all } from "./db.ts";
@@ -22,6 +22,7 @@ function player(row: MatchRow, p: 0 | 1): FeedPlayer {
     calls: p === 0 ? row.calls0 : row.calls1,
     ratingBefore: p === 0 ? row.rating0_before : row.rating1_before,
     ratingAfter: p === 0 ? row.rating0_after : row.rating1_after,
+    island: islandOf(u),
   };
 }
 

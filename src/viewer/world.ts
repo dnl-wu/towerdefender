@@ -4,6 +4,7 @@ import { TOWER_TYPES, UNIT_TYPES, type TowerType, type UnitType } from "../engin
 import type { GameMap } from "../engine/map.ts";
 import { PROPS, TOWER_ART, UNIT_ART, coreBase, crystal, gateModel, towerModel, type FeatureKind } from "./models.ts";
 import { C } from "./palette.ts";
+import { crystalOf, styleSwaps, type IslandStyle } from "./island-style.ts";
 import { Model, hash3, mix, outlined, renderSprite, rotated, shadowSprite, silhouette, type Lighting, type Sprite } from "./voxel.ts";
 
 /** Voxels per map cell, and how deep the slab is cut. */
@@ -30,7 +31,16 @@ export function cellHeight(map: GameMap, tx: number, ty: number): number {
   return map.tiles[ty]?.[tx] === "^" ? TERRACE : 0;
 }
 
-function terrain(map: GameMap, L: Lighting): { slab: Model; mirror: Model } {
+type Swap = (c: string) => string;
+
+/** A copy of a model with its colours replaced. Glowing voxels keep their glow. */
+function recolor(m: Model, sw: Swap): Model {
+  const out = new Model();
+  m.each((x, y, z, c, glow) => out.set(x, y, z, sw(c), glow));
+  return out;
+}
+
+function terrain(map: GameMap, L: Lighting, sw: Swap): { slab: Model; mirror: Model } {
   const W = map.w * T, D = map.h * T;
   // `top` is the surface that is drawn; `cast` also counts terraces, which are separate pieces but still throw shadows.
   const top: number[][] = [], col: string[][] = [], glow: boolean[][] = [], cast: number[][] = [];
@@ -66,7 +76,8 @@ function terrain(map: GameMap, L: Lighting): { slab: Model; mirror: Model } {
   const strata = (z: number) => (z >= -3 ? (z === -1 ? C.earth : z === -3 ? C.clayBand : C.earth2) : z >= -7 ? (z === -6 ? C.stone2 : C.stone) : z >= -11 ? (z === -10 ? C.slate2 : C.slate) : C.deep);
   for (let x = 0; x < W; x++) for (let y = 0; y < D; y++) {
     const h = top[x][y];
-    let c = col[x][y];
+    // The style recolours turf before shadows fall on it, so shade reads the same on every palette.
+    let c = sw(col[x][y]);
     // Terraces and kerbs throw their shadow across the ground, away from the sun.
     let shaded = false;
     for (let k = 1; k <= 4 && !shaded; k++) {
@@ -76,10 +87,10 @@ function terrain(map: GameMap, L: Lighting): { slab: Model; mirror: Model } {
     if (shaded && !glow[x][y]) c = mix(c, L.shadow.colour, L.shadow.alpha * 0.75);
     const edge = x === W - 1 || y === D - 1;
     const floor = edge ? -DEPTH : Math.min(h, 0) - 1;
-    for (let z = h; z >= floor; z--) slab.set(x, y, z, z === h ? c : z > 0 ? C.concrete : strata(z), z === h && glow[x][y]);
+    for (let z = h; z >= floor; z--) slab.set(x, y, z, z === h ? c : z > 0 ? C.concrete : sw(strata(z)), z === h && glow[x][y]);
     // Tufts of light olive standing proud of the moss.
     const tile = map.tiles[Math.floor(y / T)][Math.floor(x / T)];
-    if (h === 0 && tile === "." && col[x][y] !== C.earth && col[x][y] !== C.earth2 && hash3(x, y, 8) > 0.9955) slab.set(x, y, 1, hash3(x, y, 14) > 0.5 ? C.olive : C.moss2);
+    if (h === 0 && tile === "." && col[x][y] !== C.earth && col[x][y] !== C.earth2 && hash3(x, y, 8) > 0.9955) slab.set(x, y, 1, sw(hash3(x, y, 14) > 0.5 ? C.olive : C.moss2));
   }
   // Infrastructure on the cut faces: a copper main with brass brackets, and a few brass vents.
   const pipeZ = -5;
@@ -92,7 +103,7 @@ function terrain(map: GameMap, L: Lighting): { slab: Model; mirror: Model } {
     for (let x = -2; x < W + 2; x++) for (let y = -2; y < D + 2; y++) {
       if (x < W - 1 && y < D - 1) continue;
       const layers = [C.walnut, C.brass, C.walnut2, C.walnut2];
-      layers.forEach((c, i) => m.set(x, y, flip ? z0 + i - 3 : z0 - i, c));
+      layers.forEach((c, i) => m.set(x, y, flip ? z0 + i - 3 : z0 - i, sw(c)));
     }
   };
   foot(slab, -DEPTH - 1, false);
@@ -103,7 +114,7 @@ function terrain(map: GameMap, L: Lighting): { slab: Model; mirror: Model } {
   foot(mirror, zb - 1, true);
   for (let x = 0; x < W; x++) for (let y = 0; y < D; y++) {
     if (x !== W - 1 && y !== D - 1) continue;
-    for (let z = -DEPTH; z <= 0; z++) mirror.set(x, y, 2 * zb - z - 1, z >= 0 ? col[x][y] : strata(z));
+    for (let z = -DEPTH; z <= 0; z++) mirror.set(x, y, 2 * zb - z - 1, sw(z >= 0 ? col[x][y] : strata(z)));
   }
   return { slab, mirror };
 }
@@ -128,12 +139,15 @@ export interface Art {
 
 /**
  * Render everything. `s` is device pixels per voxel. This is the expensive
- * step (a few hundred milliseconds) and runs once per map and lighting change.
+ * step (a few hundred milliseconds) and runs once per map, lighting and island style.
+ * `style` recolours the island itself; towers and raiders always look the same.
  */
-export function buildArt(map: GameMap, L: Lighting, s: number): Art {
+export function buildArt(map: GameMap, L: Lighting, s: number, style?: IslandStyle): Art {
   const o = Math.max(1, Math.round(s / 5));
   const piece = (m: Model): PieceSprite => { const base = renderSprite(m, s, L); return { ink: outlined(base, C.outline, o), pick: outlined(base, C.jade, o * 2) }; };
-  const { slab, mirror } = terrain(map, L);
+  const swaps = styleSwaps(style), sw: Swap = (c) => swaps.get(c) ?? c;
+  const gem = crystalOf(style), core = recolor(coreBase(), (c) => (c === C.jade ? gem.colour : c));
+  const { slab, mirror } = terrain(map, L, sw);
 
   // The reflection fades with distance from the plinth.
   const raw = renderSprite(mirror, s, L, { grain: 0.02, bevel: false });
@@ -158,7 +172,7 @@ export function buildArt(map: GameMap, L: Lighting, s: number): Art {
     const faces = (phase: number) => [0, 1, 2, 3].map((q) => { const ink = outlined(renderSprite(rotated(d.model(phase), (q * Math.PI) / 2, d.pivot[0], d.pivot[1]), s, L), C.outline, o); return { ink, flash: silhouette(ink, "#fff6e6") }; });
     units[k] = Array.from({ length: d.frames ?? 1 }, (_, i) => faces(i));
   }
-  const scenery = (m: Model) => renderSprite(m, s, L, { grain: 0.07, bevel: false });
+  const scenery = (m: Model) => renderSprite(recolor(m, sw), s, L, { grain: 0.07, bevel: false });
   const tree = new Model().add(PROPS.trunk()).add(PROPS.canopy());
   return {
     lighting: L, s,
@@ -167,7 +181,7 @@ export function buildArt(map: GameMap, L: Lighting, s: number): Art {
     towers, units,
     props: { trunk: scenery(PROPS.trunk()), canopy: scenery(PROPS.canopy()), shrub: scenery(PROPS.shrub()), rocks: scenery(PROPS.rocks()), stump: scenery(PROPS.stump()), terrace: scenery(PROPS.terrace(TERRACE)) },
     propShadows: { tree: shadowSprite(tree, s, L), shrub: shadowSprite(PROPS.shrub(), s, L), rocks: shadowSprite(PROPS.rocks(), s, L), stump: shadowSprite(PROPS.stump(), s, L) },
-    core: { base: outlined(renderSprite(coreBase(), s, L), C.outline, o), shadow: shadowSprite(coreBase(), s, L), gem: Array.from({ length: 8 }, (_, i) => outlined(renderSprite(rotated(crystal(C.jade, "#dff5ee"), ((i / 8) * Math.PI) / 2, 2, 2), s, L), C.outline, o)) },
+    core: { base: outlined(renderSprite(core, s, L), C.outline, o), shadow: shadowSprite(core, s, L), gem: Array.from({ length: 8 }, (_, i) => outlined(renderSprite(rotated(crystal(gem.colour, gem.light), ((i / 8) * Math.PI) / 2, 2, 2), s, L), C.outline, o)) },
     coilGem: Array.from({ length: 8 }, (_, i) => renderSprite(rotated(crystal(C.amethyst, "#e3d8f7"), ((i / 8) * Math.PI) / 2, 2, 2), s * 0.75, L)),
     gate: { sprite: outlined(renderSprite(gateModel(), s, L), C.outline, o), shadow: shadowSprite(gateModel(), s, L) },
   };

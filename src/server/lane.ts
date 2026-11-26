@@ -13,7 +13,8 @@ export function laneOf(state: DuelState, log: [Action[], Action[]][], seat: 0 | 
   const laneLog = log.slice(0, resolvedRounds).map((round) => {
     const out: [Action[], Action[]] = [[], []];
     out[seat] = round[seat];
-    out[opp] = round[opp].filter((a) => a.type === "send");
+    // Raiders and drums arrive in your lane, so once the round is fought you know about them; their other orders stay hidden.
+    out[opp] = round[opp].filter((a) => a.type === "send" || a.type === "drums");
     return out;
   });
   const me = state.lanes[seat];

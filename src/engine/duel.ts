@@ -1,14 +1,15 @@
 import {
-  RULES, TARGETINGS, TOWERS, TOWER_TYPES, UNITS, UNIT_TYPES, defenceResale, scannerPrice, sendCap,
+  DRUMS, RULES, TARGETINGS, TOWERS, TOWER_TYPES, UNITS, UNIT_TYPES, defenceResale, drumsPrice, scannerPrice, sendCap,
   type Spec, type Targeting, type TowerType, type UnitType,
 } from "./data.ts";
 import { canonicalAction, CURRENT_RULES } from "./match-log.ts";
-import { runBattle, type BattleResult, type Tower } from "./battle.ts";
+import { runBattle, type BattleMods, type BattleResult, type Tower } from "./battle.ts";
 import { generateMap, isBuildable, type GameMap } from "./map.ts";
-import { baseWave, sendGroups } from "./waves.ts";
+import { baseWave, sendGroups, type SpawnGroup } from "./waves.ts";
 
 export type Action =
   | { type: "scan" }
+  | { type: "drums" }
   | { type: "build"; tower: TowerType; x: number; y: number; targeting?: Targeting }
   | { type: "upgrade"; id: number; spec?: Spec }
   | { type: "sell"; id: number; pricing?: "whole-percent" }
@@ -24,12 +25,14 @@ export interface Lane {
   /** Orders bought this round, aimed at the opponent. */
   sends: { unit: UnitType; orders: number }[];
   sendSpent: number;
+  /** War Drums bought this round, beaten against the opponent's lane. */
+  drums: boolean;
   committed: boolean;
   /** What this player knows about the opponent's towers. Fog of war: only what contact or a Scanner revealed. */
   intel: Intel;
   /** Round of this player's last Scanner, 0 if none. */
   lastScanRound: number;
-  totals: { towerGold: number; sendGold: number; scannerGold: number; bounty: number; livesTaken: number; refunds: number; goldStolen: number; goldLost: number };
+  totals: { towerGold: number; sendGold: number; scannerGold: number; drumsGold: number; bounty: number; livesTaken: number; refunds: number; goldStolen: number; goldLost: number };
 }
 
 /** One opponent tower as last seen. It may since have been upgraded, retargeted or sold. */
@@ -53,6 +56,8 @@ export interface RoundRecord {
     battle: BattleResult;
     sent: { unit: UnitType; orders: number }[];
     sendSpent: number;
+    /** This side beat War Drums against the opponent this round. */
+    drums: boolean;
     /** Gold thieves took from this side, and gold this side's thieves brought home. */
     goldLost: number;
     goldStolen: number;
@@ -92,8 +97,8 @@ export interface DuelState {
 function newLane(): Lane {
   return {
     gold: RULES.startGold, income: RULES.baseIncome, lives: RULES.startLives, towers: [], nextTowerId: 1,
-    sends: [], sendSpent: 0, committed: false, intel: { towers: {}, newlySeen: [] }, lastScanRound: 0,
-    totals: { towerGold: 0, sendGold: 0, scannerGold: 0, bounty: 0, livesTaken: 0, refunds: 0, goldStolen: 0, goldLost: 0 },
+    sends: [], sendSpent: 0, drums: false, committed: false, intel: { towers: {}, newlySeen: [] }, lastScanRound: 0,
+    totals: { towerGold: 0, sendGold: 0, scannerGold: 0, drumsGold: 0, bounty: 0, livesTaken: 0, refunds: 0, goldStolen: 0, goldLost: 0 },
   };
 }
 
@@ -143,6 +148,18 @@ function apply(state: DuelState, player: 0 | 1, lane: Lane, a: Action): ActionRe
       for (const t of state.open[1 - player].towers) seen[t.id] = { ...t, seenRound: state.round, via: "scan" };
       lane.intel = { towers: seen, newlySeen: lane.intel.newlySeen };
       return { ok: true, note: `Scanner deployed for ${cost} gold: ${Object.keys(seen).length} enemy towers seen as round ${state.round} opened.` };
+    }
+    case "drums": {
+      if (state.round < DRUMS.unlock) return fail(`War Drums unlock in round ${DRUMS.unlock}.`);
+      if (lane.drums) return fail("You are already beating War Drums this round.");
+      const cost = drumsPrice(state.round), cap = sendCap(state.round);
+      if (lane.sendSpent + cost > cap) return fail(`War Drums cost ${cost} gold of your ${cap}-gold send cap; you have used ${lane.sendSpent}.`);
+      if (lane.gold < cost) return fail(`War Drums cost ${cost} gold this round; you have ${lane.gold}.`);
+      lane.gold -= cost;
+      lane.sendSpent += cost;
+      lane.totals.drumsGold += cost;
+      lane.drums = true;
+      return { ok: true, note: `War Drums bought for ${cost} gold: every enemy in their lane moves ${Math.round((DRUMS.haste - 1) * 100)}% faster this round.` };
     }
     case "build": {
       if (!TOWER_TYPES.includes(a.tower)) return fail(`Unknown tower "${a.tower}". Options: ${TOWER_TYPES.join(", ")}.`);
@@ -225,7 +242,7 @@ function apply(state: DuelState, player: 0 | 1, lane: Lane, a: Action): ActionRe
       return { ok: true, note: `Sending ${s.count * orders} ${UNITS[a.unit].name}${s.count * orders > 1 ? "s" : ""} for ${cost} gold (+${s.income * orders} income).` };
     }
     default:
-      return fail(`Unknown action type. Options: build, upgrade, sell, target, send, scan.`);
+      return fail(`Unknown action type. Options: build, upgrade, sell, target, send, scan, drums.`);
   }
 }
 
@@ -237,13 +254,21 @@ export function bothCommitted(state: DuelState): boolean {
   return state.lanes[0].committed && state.lanes[1].committed;
 }
 
+/** What a lane faces this round: the neutral wave, the opponent's raiders, and their drums. The replay viewer builds battles from this too. */
+export function laneBattle(state: DuelState, p: 0 | 1): { groups: SpawnGroup[]; mods: BattleMods } {
+  const them = state.lanes[1 - p];
+  return {
+    groups: [...baseWave(state.seed, state.round), ...sendGroups(them.sends)],
+    mods: them.drums ? { haste: DRUMS.haste } : {},
+  };
+}
+
 /** Fight the round on both lanes, pay out, and advance or finish the match. */
 export function resolveRound(state: DuelState): RoundRecord {
   const round = state.round;
-  const base = baseWave(state.seed, round);
-  const results = [0, 1].map((p) => {
-    const incoming = sendGroups(state.lanes[1 - p].sends);
-    return runBattle(state.map, state.lanes[p].towers, [...base, ...incoming], round);
+  const results = ([0, 1] as const).map((p) => {
+    const { groups, mods } = laneBattle(state, p);
+    return runBattle(state.map, state.lanes[p].towers, groups, round, mods);
   });
 
   const record: RoundRecord = { round, sides: [] };
@@ -269,12 +294,13 @@ export function resolveRound(state: DuelState): RoundRecord {
   for (const p of [0, 1] as const) {
     const lane = state.lanes[p];
     record.sides.push({
-      battle: results[p], sent: lane.sends, sendSpent: lane.sendSpent, goldLost: theft[p], goldStolen: theft[1 - p],
+      battle: results[p], sent: lane.sends, sendSpent: lane.sendSpent, drums: lane.drums, goldLost: theft[p], goldStolen: theft[1 - p],
       goldAfter: lane.gold, incomeAfter: lane.income, livesAfter: lane.lives,
       towerValue: lane.towers.reduce((s, t) => s + t.invested, 0),
     });
     lane.sends = [];
     lane.sendSpent = 0;
+    lane.drums = false;
     lane.committed = false;
   }
   state.history.push(record);

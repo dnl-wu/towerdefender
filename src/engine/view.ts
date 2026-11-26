@@ -1,7 +1,7 @@
 // What an agent is allowed to see. The opponent is read only through the
 // player's own intel (fog of war), never their lane, so a view cannot leak
 // their towers, gold, income or this round's moves.
-import { RULES, TOWERS, UNITS, UNIT_TYPES, defenceResale, hpScale, lootFor, scannerPrice, sendCap, type TowerType, type UnitType } from "./data.ts";
+import { DRUMS, RULES, TOWERS, UNITS, UNIT_TYPES, defenceResale, drumsPrice, hpScale, lootFor, scannerPrice, sendCap, type TowerType, type UnitType } from "./data.ts";
 import { effectiveStats, type Tower } from "./battle.ts";
 import type { DuelState, SeenTower } from "./duel.ts";
 import { TOWER_GLYPHS, pathCoverage, renderAscii, type GameMap } from "./map.ts";
@@ -87,8 +87,13 @@ export function stateView(state: DuelState, player: 0 | 1) {
       lives: state.open[1 - player].lives,
       knownTowers: known.length,
       sentAtYouLastRound: last ? last.sides[1 - player].sent : [],
+      beatDrumsLastRound: last ? last.sides[1 - player].drums : false,
     },
     scanner: { cost: scannerPrice(state.round), boughtThisRound: me.lastScanRound === state.round, lastScanRound: me.lastScanRound || null, tool: "deploy_scanner" },
+    warDrums: {
+      cost: drumsPrice(state.round), available: state.round >= DRUMS.unlock, unlocksRound: DRUMS.unlock, boughtThisRound: me.drums,
+      effect: `Every enemy in their lane, neutral wave included, moves ${Math.round((DRUMS.haste - 1) * 100)}% faster this round. Uses your send cap, gives no income. Action: {"type":"drums"}.`,
+    },
     incomingWaves: forecast(state),
     sendShop: UNIT_TYPES.map((u: UnitType) => ({
       unit: u, unitsPerOrder: UNITS[u].send.count, cost: UNITS[u].send.cost, incomePerOrder: UNITS[u].send.income,

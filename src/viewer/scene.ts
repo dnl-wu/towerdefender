@@ -3,6 +3,7 @@
 import { effectiveStats, type Enemy, type Tower } from "../engine/battle.ts";
 import { UNITS } from "../engine/data.ts";
 import { TOWER_ART, UNIT_ART, type FeatureKind } from "./models.ts";
+import { crystalOf, styleKey, type IslandStyle } from "./island-style.ts";
 import { C, UI } from "./palette.ts";
 import type { Fx, Playback } from "./playback.ts";
 import { blank, lit, project, rgba, LIGHTING, type Lighting, type Sprite, type Vec2 } from "./voxel.ts";
@@ -47,11 +48,14 @@ export class Scene {
   private sweep = -1;
   private features: { tx: number; ty: number; kind: FeatureKind }[] = [];
   private motes: { x: number; y: number; z: number; d: number }[];
+  /** The map and island style the art was built for. */
   private artFor: unknown = null;
+  private artStyle = "";
 
-  constructor(private canvas: HTMLCanvasElement, private pb: Playback, lighting: Lighting["key"] = "golden") {
+  /** `dpr` overrides the screen's pixel ratio, for small previews that need fewer pixels than a full match view. */
+  constructor(private canvas: HTMLCanvasElement, private pb: Playback, lighting: Lighting["key"] = "golden", dpr?: number) {
     const map = pb.map;
-    this.dpr = Math.min(2, window.devicePixelRatio || 1);
+    this.dpr = dpr ?? Math.min(2, window.devicePixelRatio || 1);
     this.s = S * this.dpr;
     this.width = (map.w * T + map.h * T) * S + 80;
     this.height = 104 + ((map.w * T + map.h * T) * S) / 2 + (DEPTH + 4) * S + 60;
@@ -71,9 +75,10 @@ export class Scene {
   }
 
   private rebuild(): void {
-    const map = this.pb.map, L = this.lighting;
-    this.art = buildArt(map, L, this.s);
+    const map = this.pb.map, L = this.lighting, style = this.style;
+    this.art = buildArt(map, L, this.s, style);
     this.artFor = map;
+    this.artStyle = styleKey(style);
     this.features = [];
     for (let ty = 0; ty < map.h; ty++) for (let tx = 0; tx < map.w; tx++) { const kind = featureAt(map, tx, ty); if (kind) this.features.push({ tx, ty, kind }); }
     // Backdrop: a warm pool of light on a dark table, falling away to near-black at the edges.
@@ -86,6 +91,9 @@ export class Scene {
     k.fillStyle = gr; k.beginPath(); k.arc(0, 0, w, 0, 7); k.fill(); k.restore();
     this.backdrop = cv;
   }
+
+  /** The watched player's island style. Each lane is drawn in its own player's colours. */
+  private get style(): IslandStyle | undefined { return this.pb.feed.players[this.pb.side]?.island; }
 
   // ---- geometry ----
   private at(x: number, y: number, z: number): Vec2 { const [px, py] = project(x, y, z, this.s); return [this.origin[0] + px, this.origin[1] + py]; }
@@ -216,7 +224,7 @@ export class Scene {
   /** Advance presentation state and draw one frame. */
   frame(dt: number): void {
     const pb = this.pb, g = this.g, L = this.lighting, clock = pb.clock, map = pb.map, dpr = this.dpr, s = this.s;
-    if (this.artFor !== map) this.rebuild();
+    if (this.artFor !== map || this.artStyle !== styleKey(this.style)) this.rebuild();
     for (const fx of pb.drain()) this.take(fx);
     this.coreFlash = Math.max(0, this.coreFlash - dt * 2.2);
     this.coreJoy = Math.max(0, this.coreJoy - dt * 0.5);
@@ -264,7 +272,7 @@ export class Scene {
     this.drawPlayerTag();
 
     // Light pooled on the ground by the things that matter: jade from the core and power tiles, amber from its lamps, ember from the portal.
-    this.pool(ccx, ccy, 0, 9 + this.coreJoy * 6, C.jade, (0.26 + breath * 0.1 + this.coreJoy * 0.3) * L.glow, "lighter");
+    this.pool(ccx, ccy, 0, 9 + this.coreJoy * 6, crystalOf(this.style).colour, (0.26 + breath * 0.1 + this.coreJoy * 0.3) * L.glow, "lighter");
     this.pool(ccx, ccy, 0, 13, C.honey, 0.12 * L.glow, "lighter");
     if (this.coreFlash > 0) this.pool(ccx, ccy, 0, 12, UI.terracotta, this.coreFlash * 0.75);
     this.pool(...this.mid(gx, gy), 0, 6, C.ember, (0.14 + breath * 0.06) * L.glow, "lighter");

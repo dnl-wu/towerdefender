@@ -316,6 +316,18 @@ export function defenceResale(invested: number): number {
   return Math.floor(invested * RULES.sellRefundPercent / 100);
 }
 
+/**
+ * War Drums: bought in secret during planning, they drive every enemy in the
+ * opponent's lane faster for that round's battle, neutral wave included. No
+ * income, and the price comes out of the send cap, so drums are bought instead
+ * of raiders, not as well as them. Slows still apply on top.
+ */
+export const DRUMS = { haste: 1.2, unlock: 3 } as const;
+
+export function drumsPrice(round: number): number {
+  return 20 + 8 * round;
+}
+
 /** Most gold a player may spend on sends in one round. */
 export function sendCap(round: number): number {
   return 50 + 20 * round;

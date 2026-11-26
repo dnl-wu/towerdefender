@@ -3,8 +3,8 @@
 // simulation the server ran, so everything on screen is actual game state.
 import { battleResult, createBattle, stepBattle, type Battle, type CoreHit, type Enemy, type Tower } from "../engine/battle.ts";
 import { RULES, TOWERS, UNITS, type TowerType, type UnitType } from "../engine/data.ts";
-import { applyRecordedAction, commit, createDuel, resolveRound, type Action, type DuelState, type RoundRecord } from "../engine/duel.ts";
-import { baseWave, sendGroups, waveArchetype, type SpawnGroup } from "../engine/waves.ts";
+import { applyRecordedAction, commit, createDuel, laneBattle, resolveRound, type Action, type DuelState, type RoundRecord } from "../engine/duel.ts";
+import { baseWave, waveArchetype } from "../engine/waves.ts";
 import type { Feed } from "./feed.ts";
 
 export type Phase = "build" | "battle" | "result" | "waiting" | "final";
@@ -24,6 +24,7 @@ function transactionEntry(round: number, action: Action, delta: number, tower?: 
     case "build": label = `Built ${TOWERS[action.tower].name}`; break;
     case "send": label = `Sent ${(action.orders ?? 1) * UNITS[action.unit].send.count} × ${UNITS[action.unit].name}`; break;
     case "scan": label = "Deployed Scanner"; break;
+    case "drums": label = "Beat War Drums"; break;
     case "upgrade": label = `Upgraded ${tower ? TOWERS[tower.type].name : "tower"} #${action.id}`; break;
     case "sell": label = `Sold ${tower ? TOWERS[tower.type].name : "tower"} #${action.id}`; break;
     default: return null;
@@ -56,7 +57,8 @@ export interface Hud {
   lives: [number, number];
   gold: [number, number];
   income: [number, number];
-  wave: { round: number; theme: string; forecast: boolean; entries: WaveEntry[] };
+  /** `drums`: War Drums are driving this lane's enemies faster in the round on screen. */
+  wave: { round: number; theme: string; forecast: boolean; entries: WaveEntry[]; drums: boolean };
   note: { text: string; good: boolean } | null;
   result: { text: string; reason: string } | null;
   mood: ["neutral" | "focus" | "joy" | "sad", "neutral" | "focus" | "joy" | "sad"];
@@ -93,7 +95,8 @@ export class Playback {
   private known = new Map<number, Enemy>();
   private acc = 0;
   private buildFor = 0;
-  private groups: [SpawnGroup[], SpawnGroup[]] = [[], []];
+  /** What each lane faces this round, built by the engine's own rules so a replay matches the match exactly. */
+  private setups: [ReturnType<typeof laneBattle>, ReturnType<typeof laneBattle>] = [{ groups: [], mods: {} }, { groups: [], mods: {} }];
 
   constructor(feed: Feed, side: 0 | 1) {
     this.feed = feed;
@@ -294,8 +297,7 @@ export class Playback {
     this.nextSentHit = 0;
     this.phase = "build";
     this.buildFor = Math.max(1, this.buildFor + 0.6);
-    const base = baseWave(this.duel.seed, this.round);
-    this.groups = [[...base, ...sendGroups(this.duel.lanes[1].sends)], [...base, ...sendGroups(this.duel.lanes[0].sends)]];
+    this.setups = [laneBattle(this.duel, 0), laneBattle(this.duel, 1)];
   }
 
   private get sentHits() { return this.feed.lane?.rounds[this.round - 1]?.sentHits ?? []; }
@@ -314,7 +316,7 @@ export class Playback {
 
     // Towers are revealed one by one in real time; only catching up shortens that.
     if (this.phase === "build" && this.phaseT >= (this.buildFor * PLAYBACK) / speed) {
-      this.battles = [0, 1].map((p) => createBattle(this.duel.map, this.duel.lanes[p].towers, this.groups[p], this.round)) as [Battle, Battle];
+      this.battles = ([0, 1] as const).map((p) => createBattle(this.duel.map, this.duel.lanes[p].towers, this.setups[p].groups, this.round, this.setups[p].mods)) as [Battle, Battle];
       this.phase = "battle"; this.phaseT = 0; this.acc = 0;
     } else if (this.phase === "battle" && this.battles) {
       this.acc += dt * speed;
@@ -395,7 +397,7 @@ export class Playback {
 
   waveEntries(p: 0 | 1): WaveEntry[] {
     const by = new Map<UnitType, WaveEntry>();
-    for (const g of this.groups[p]) {
+    for (const g of this.setups[p].groups) {
       const e = by.get(g.unit) ?? { unit: g.unit, count: 0, sent: 0 };
       e.count += g.count;
       if (g.source === "send") e.sent += g.count;
@@ -441,7 +443,7 @@ export class Playback {
       // What your own goblins steal is unknown until then in lane mode.
       gold: num((p) => d.lanes[p].gold + (fighting ? this.battles![p].bounty - this.battles![p].stolen + (this.laneMode ? 0 : this.battles![1 - p].stolen) : 0)),
       income: num((p) => d.lanes[p].income),
-      wave: { round: waveRound, theme: waveArchetype(d.seed, waveRound), forecast, entries },
+      wave: { round: waveRound, theme: waveArchetype(d.seed, waveRound), forecast, entries, drums: shown && this.setups[this.side].mods.haste !== undefined },
       note, result, mood: [mood(0), mood(1)],
     };
   }

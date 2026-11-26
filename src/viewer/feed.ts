@@ -7,6 +7,7 @@
 import type { CoreHit } from "../engine/battle.ts";
 import type { RulesVersion } from "../engine/match-log.ts";
 import type { Action, SeenTower } from "../engine/duel.ts";
+import type { IslandStyle } from "./island-style.ts";
 
 export interface FeedPlayer {
   handle: string;
@@ -29,6 +30,8 @@ export interface FeedPlayer {
   calls: number;
   ratingBefore: number | null;
   ratingAfter: number | null;
+  /** How this player's lane is drawn. Cosmetic only; absent means the default island. */
+  island?: IslandStyle;
 }
 
 export interface Feed {

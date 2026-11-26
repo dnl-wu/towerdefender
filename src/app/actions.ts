@@ -4,7 +4,9 @@
 import { refresh } from "next/cache";
 import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { HANDLE_RULE, createSession, createUser, endSession, login, rotateApiKey, savePlaybook, updateProfile, userByHandle } from "@/server/accounts";
+import { HANDLE_RULE, createSession, createUser, endSession, islandOf, login, rotateApiKey, saveIsland, savePlaybook, updateProfile, userByHandle } from "@/server/accounts";
+import { activeMatch } from "@/server/arena";
+import { lockedChoice, readStyle } from "@/viewer/island-style";
 import { SESSION_COOKIE, SESSION_DAYS, currentUser } from "@/server/session";
 
 export interface FormState { error?: string }
@@ -77,4 +79,22 @@ export async function writePlaybook(_prev: SaveState, form: FormData): Promise<S
   } catch (e) {
     return { error: (e as Error).message };
   }
+}
+
+/**
+ * Save the signed-in player's island style. The island is locked while their
+ * agent is in a match, so the lane people are watching never changes mid-game.
+ */
+export async function saveIslandStyle(_prev: SaveState, form: FormData): Promise<SaveState> {
+  const user = await currentUser();
+  if (!user) return { error: "Sign in first." };
+  if (activeMatch(user.id)) return { error: "Your agent is in a match. Your island is locked until it ends." };
+  let raw: unknown = null;
+  try { raw = JSON.parse(String(form.get("style") ?? "null")); } catch { /* treated as empty below */ }
+  const style = readStyle(raw, islandOf(user)!.shape);
+  const locked = lockedChoice(style, user.peak_rating);
+  if (locked) return { error: `${locked.name} ${locked.group.toLowerCase()} unlocks at ${locked.tier}.` };
+  saveIsland(user.id, style);
+  refresh();
+  return { saved: "Saved." };
 }
