@@ -1,7 +1,7 @@
 "use client";
 // The spectator view: the miniature on a dark table, five small instruments
 // around it, and one popover at a time for anyone curious about the machinery.
-import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { effectiveStats, type EffectiveStats, type Tower } from "../engine/battle.ts";
 import { RULES, TOWERS, UNITS, defenceResale, hpScale, lootFor, type TowerType, type UnitType } from "../engine/data.ts";
 import { unitVitals, type RulesVersion } from "../engine/match-log.ts";
@@ -9,7 +9,7 @@ import { baseWave, summarizeWave, waveArchetype } from "../engine/waves.ts";
 import type { Feed, FeedPlayer, LaneInfo, MatchView } from "./feed.ts";
 import { UNIT_ART, towerModel, warden, type Mood } from "./models.ts";
 import { C } from "./palette.ts";
-import { Playback, towerLabel, type Hud } from "./playback.ts";
+import { Playback, towerLabel, type ActivityEntry, type Hud } from "./playback.ts";
 import { Scene, type Hit } from "./scene.ts";
 import { LIGHTING, blank, outlined, project, renderSprite, type Lighting } from "./voxel.ts";
 
@@ -136,14 +136,16 @@ export function MatchViewer({ initial, pollUrl, side: startSide = 0, onReady }: 
   // Follow a live match.
   useEffect(() => {
     if (!pollUrl || feed.status !== "active") return;
+    let polling = false;
     const id = setInterval(async () => {
-      if (document.hidden) return;
+      if (document.hidden || polling) return;
+      polling = true;
       try { const res = await fetch(pollUrl, { cache: "no-store" }); if (res.ok) {
         const next = (await res.json()) as MatchView;
         // The match ended (lane to full replay) or the viewer's access changed: start again with the new view.
         if (next.view !== feed.view) { location.reload(); return; }
         pbRef.current?.setFeed(next); setFeed(next);
-      } } catch { /* offline: try again on the next tick */ }
+      } } catch { /* offline: try again on the next tick */ } finally { polling = false; }
     }, 2000);
     return () => clearInterval(id);
   }, [pollUrl, feed.status]);
@@ -231,6 +233,7 @@ export function MatchViewer({ initial, pollUrl, side: startSide = 0, onReady }: 
                 <span className={`health max-sm:col-start-2 max-sm:justify-end${hud.mood[side] === "sad" ? " text-terracotta" : ""}`}><Heart /><b>{Math.max(0, hud.lives[side])}</b></span>
                 <Pips n={hud.lives[side]} />
               </button>
+              <TransactionLog key={side} entries={pb.activity[side]} />
               {open === "me" && <AgentPop p={me} idx={side} hud={hud} pb={pb} feed={feed} now={now} friend onWatch={null} />}
             </div>
 
@@ -318,6 +321,54 @@ function attackSummary(t: Tower, s: EffectiveStats): string {
   const pattern = s.slow ? "Area slow" : s.splash ? "Splash" : s.chain ? "Chain" : "Single target";
   return `${reach} · ${pattern} · ${s.targets === "both" ? "Air & ground" : s.targets === "air" ? "Air only" : "Ground only"}`;
 }
+
+const TransactionLog = memo(function TransactionLog({ entries }: { entries: ActivityEntry[] }) {
+  const list = useRef<HTMLOListElement>(null);
+  const follow = useRef(true);
+  const first = useRef<ActivityEntry | undefined>(undefined);
+  const [expanded, setExpanded] = useState(true);
+  const [atLatest, setAtLatest] = useState(true);
+  useLayoutEffect(() => {
+    // Restarting a replay creates new entries, even if round one has the same orders.
+    if (first.current !== entries[0]) {
+      follow.current = true;
+      setAtLatest(true);
+      first.current = entries[0];
+    }
+    if (follow.current && list.current) list.current.scrollTop = list.current.scrollHeight;
+  }, [entries, expanded]);
+
+  return (
+    <section className="instrument absolute top-[calc(100%+4px)] left-0 w-[min(47vw,13rem)] overflow-hidden bg-walnut/95 sm:top-[calc(100%+8px)] sm:w-60" aria-label="Transactions">
+      <div className="flex items-center justify-between px-2">
+        <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)} className="flex flex-1 cursor-pointer items-center gap-1.5 py-1 text-left text-[11px] font-semibold text-limestone">
+          <span aria-hidden className="text-brass">{expanded ? "▾" : "▸"}</span>Transactions
+        </button>
+        {expanded && !atLatest && <button type="button" className="cursor-pointer px-1 text-[11px] text-jade" onClick={() => {
+          follow.current = true;
+          if (list.current) list.current.scrollTop = list.current.scrollHeight;
+          setAtLatest(true);
+        }}>Latest ↓</button>}
+      </div>
+      {expanded && <ol ref={list} tabIndex={0} aria-label="Transaction and core damage history" onScroll={e => {
+        const el = e.currentTarget;
+        follow.current = el.scrollHeight - el.clientHeight - el.scrollTop < 4;
+        setAtLatest(follow.current);
+      }} className="max-h-[clamp(3rem,13vw,6rem)] overflow-y-auto overscroll-contain border-t border-bronze/70 px-2 text-[11px]/3.5 [scrollbar-width:thin] [overflow-anchor:none] sm:max-h-36">
+        {entries.length === 0 && <li className="py-2 text-sand">Waiting for the first order.</li>}
+        {entries.map(({ round, kind, label, amount }, i) => (
+          <li key={i} className="grid grid-cols-[auto_1fr_auto] items-baseline gap-x-1.5 border-b border-bronze/40 py-1 last:border-0">
+            <span className="font-mono text-sand">R{round}</span>
+            <span>{label}</span>
+            <span className={`whitespace-nowrap font-mono tabular-nums ${kind === "taken" ? "text-terracotta" : kind === "dealt" ? "text-fern" : "text-honey"}`}>
+              {kind === "dealt" ? `${amount} dmg` : kind === "taken" ? `−${amount} HP` : `${amount > 0 ? "+" : "−"}${Math.abs(amount)}g`}
+            </span>
+          </li>
+        ))}
+      </ol>}
+    </section>
+  );
+});
 
 function TowerLine({ t, pb }: { t: Tower; pb: Playback }) {
   const s = effectiveStats(t, pb.map, pb.towers), def = TOWERS[t.type];

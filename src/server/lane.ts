@@ -21,8 +21,10 @@ export function laneOf(state: DuelState, log: [Action[], Action[]][], seat: 0 | 
     log: laneLog,
     lane: {
       side: seat,
+      planning: { round: state.round, actions: state.log[state.round - 1]?.[seat] ?? [] },
       rounds: state.history.slice(0, resolvedRounds).map((r) => ({
         goldAfter: r.sides[seat].goldAfter, incomeAfter: r.sides[seat].incomeAfter, livesAfter: r.sides[seat].livesAfter,
+        sentHits: r.sides[opp].battle.coreHits.filter(hit => hit.source === "send").map(({ tick, unit }) => ({ tick, unit })),
         opponentLivesAfter: r.sides[opp].livesAfter, goldStolen: r.sides[seat].goldStolen, livesTaken: r.sides[opp].battle.leakedLives.send,
       })),
       intel: Object.values(me.intel.towers).sort((a, b) => a.id - b.id),

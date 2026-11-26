@@ -4,6 +4,7 @@
 //   the opponent only what fog of war lets your agent know.
 // - "summary": a live match, for anyone else. Public facts only.
 // A live match's log never includes the round being planned.
+import type { CoreHit } from "../engine/battle.ts";
 import type { RulesVersion } from "../engine/match-log.ts";
 import type { Action, SeenTower } from "../engine/duel.ts";
 
@@ -61,8 +62,10 @@ export interface Feed {
 export interface LaneInfo {
   /** Which player you are. */
   side: 0 | 1;
+  /** Only the viewing player’s accepted orders from the open planning round. */
+  planning: { round: number; actions: Action[] };
   /** Settled after each resolved round, for values your own lane cannot reproduce (stolen gold, their lives). */
-  rounds: { goldAfter: number; incomeAfter: number; livesAfter: number; opponentLivesAfter: number; goldStolen: number; livesTaken: number }[];
+  rounds: { goldAfter: number; incomeAfter: number; livesAfter: number; opponentLivesAfter: number; goldStolen: number; livesTaken: number; sentHits: Pick<CoreHit, "tick" | "unit">[] }[];
   /** Opponent towers your agent has seen, as last seen. */
   intel: SeenTower[];
   /** Round of your agent's last Scanner, or 0. */

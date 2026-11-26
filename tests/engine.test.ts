@@ -302,3 +302,59 @@ test("a player's live view rebuilds their own lane exactly from their moves and 
     }
   }
 });
+
+test("the watched player's log follows planning orders, core hits and settled gold in live play and replays", async () => {
+  const { Playback } = await import("../src/viewer/playback.ts");
+  const { laneOf } = await import("../src/server/lane.ts");
+  const state = createDuel(11);
+  const base = {
+    id: "log", seed: state.seed, mode: "practice" as const, winner: null, endReason: null,
+    createdAt: 0, finishedAt: null, players: [] as never, live: null,
+  };
+  const liveFeed = () => ({
+    ...base, view: "lane" as const, status: "active" as const, resolvedRounds: state.history.length,
+    ...laneOf(state, state.log, 0, state.history.length),
+  });
+  const live = new Playback(liveFeed(), 0);
+  assert.ok(applyAction(state, 0, { type: "send", unit: "kobold" }).ok);
+  assert.ok(applyAction(state, 1, { type: "send", unit: "hellhound" }).ok);
+  live.setFeed(liveFeed());
+  assert.ok(applyAction(state, 0, { type: "scan" }).ok);
+  live.setFeed(liveFeed());
+  live.setFeed(liveFeed());
+  assert.deepEqual(live.activity[0].map(e => e.amount), [-20, -scannerPrice(1)]);
+  assert.deepEqual(live.activity[1], []);
+  assert.deepEqual(liveFeed().lane.planning.actions, state.log[0][0]);
+  assert.equal(live.duel.lanes[0].gold, RULES.startGold, "previewing orders never alters the simulation");
+
+  commit(state, 0); commit(state, 1);
+  const rec = resolveRound(state);
+  live.setFeed(liveFeed());
+  const replay = new Playback({
+    ...base, view: "full", status: "finished", resolvedRounds: 1, log: state.log,
+  }, 1);
+  let sawHitDuringBattle = false;
+  for (let i = 0; i < 5000 && (live.phase !== "result" || replay.phase !== "result"); i++) {
+    if (live.phase !== "result") live.update(0.05);
+    if (replay.phase !== "result") replay.update(0.05);
+    if (live.phase === "battle" && live.activity[0].some(e => e.kind === "dealt")) sawHitDuringBattle = true;
+  }
+  assert.equal(live.phase, "result");
+  assert.equal(replay.phase, "result");
+  assert.ok(sawHitDuringBattle);
+  for (const p of [0, 1] as const) {
+    replay.setSide(p);
+    const rows = replay.activity[p];
+    const total = (kind: "gold" | "taken" | "dealt") => rows.filter(e => e.kind === kind).reduce((n, e) => n + e.amount, 0);
+    assert.equal(total("taken"), rec.sides[p].battle.livesLost);
+    assert.equal(total("dealt"), rec.sides[1 - p].battle.leakedLives.send);
+    assert.equal(total("gold"), rec.sides[p].goldAfter - RULES.startGold);
+  }
+  // Events on opposite lanes can occur in the same tick. Compare their contents.
+  const entries = (rows: typeof live.activity[0]) => rows.map(e => JSON.stringify(e)).sort();
+  assert.deepEqual(entries(live.activity[0]), entries(replay.activity[0]));
+  assert.deepEqual(live.activity[1], []);
+  assert.ok(live.activity[0].filter(e => e.kind === "dealt").every(e => e.label.includes("Kobold")));
+  replay.restart();
+  assert.deepEqual(replay.activity[0].map(e => e.amount), [-20, -scannerPrice(1)]);
+});

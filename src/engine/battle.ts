@@ -93,6 +93,8 @@ interface TowerRuntime {
   overkill: number;
 }
 
+export interface CoreHit { tick: number; unit: UnitType; source: Enemy["source"] }
+
 export interface Battle {
   map: GameMap;
   round: number;
@@ -113,6 +115,7 @@ export interface Battle {
   killed: Partial<Record<UnitType, number>>;
   leaked: Partial<Record<UnitType, number>>;
   leakedLives: { base: number; send: number };
+  coreHits: CoreHit[];
   /** Sum of progress (0..1) at death, per unit, to report how deep kills happened. */
   deathProgress: Partial<Record<UnitType, number>>;
   /** Towers that struck a unit the opponent sent. The sender's raiders report them back. */
@@ -130,8 +133,19 @@ export function createBattle(map: GameMap, towers: Tower[], groups: SpawnGroup[]
     towers: towers.map((tower) => ({ tower, stats: effectiveStats(tower, map, towers), cooldown: 0, dmg: 0, kills: 0, shots: 0, overkill: 0 })),
     queue: indexed.map((x) => x.q), queueIdx: 0, nextId: 1, done: false, livesLost: 0, stolen: 0, bounty: 0,
     routeLen: { ground: map.path.length - 1, air: flightLength(map) },
-    spawned: {}, killed: {}, leaked: {}, leakedLives: { base: 0, send: 0 }, deathProgress: {}, contacts: new Set(),
+    spawned: {}, killed: {}, leaked: {}, coreHits: [], leakedLives: { base: 0, send: 0 }, deathProgress: {}, contacts: new Set(),
   };
+}
+
+function reachCore(b: Battle, en: Enemy, events: BattleEvent[]): void {
+  en.alive = false;
+  const lives = UNITS[en.unit].lives, loot = lootFor(en.unit, b.round);
+  b.livesLost += lives;
+  b.stolen += loot;
+  b.leaked[en.unit] = (b.leaked[en.unit] ?? 0) + 1;
+  b.leakedLives[en.source] += lives;
+  if (lives > 0) b.coreHits.push({ tick: b.tick, unit: en.unit, source: en.source });
+  events.push({ e: "leak", id: en.id, lives, loot });
 }
 
 function place(b: Battle, en: Enemy) {
@@ -257,13 +271,7 @@ export function stepBattle(b: Battle): BattleEvent[] {
     en.dist += def.speed * (1 - slow) * dt;
     const len = def.flying ? b.routeLen.air : b.routeLen.ground;
     if (en.dist >= len) {
-      en.alive = false;
-      const loot = lootFor(en.unit, b.round);
-      b.livesLost += def.lives;
-      b.stolen += loot;
-      b.leaked[en.unit] = (b.leaked[en.unit] ?? 0) + 1;
-      b.leakedLives[en.source] += def.lives;
-      events.push({ e: "leak", id: en.id, lives: def.lives, loot });
+      reachCore(b, en, events);
       continue;
     }
     place(b, en);
@@ -364,11 +372,7 @@ export function stepBattle(b: Battle): BattleEvent[] {
     // Stalled battle: whatever is still on the field counts as through.
     for (const en of b.enemies) {
       if (!en.alive) continue;
-      en.alive = false;
-      b.livesLost += UNITS[en.unit].lives;
-      b.stolen += lootFor(en.unit, b.round);
-      b.leaked[en.unit] = (b.leaked[en.unit] ?? 0) + 1;
-      b.leakedLives[en.source] += UNITS[en.unit].lives;
+      reachCore(b, en, events);
     }
     b.done = true;
   }
@@ -381,6 +385,7 @@ export interface BattleResult {
   /** Gold carried off by thieves. What the defender actually loses is capped by what it has; see resolveRound. */
   stolen: number;
   leakedLives: { base: number; send: number };
+  coreHits: CoreHit[];
   bounty: number;
   spawned: Partial<Record<UnitType, number>>;
   killed: Partial<Record<UnitType, number>>;
@@ -401,7 +406,7 @@ export function battleResult(b: Battle): BattleResult {
     duration: Math.round(b.t * 10) / 10,
     livesLost: b.livesLost,
     stolen: b.stolen,
-    leakedLives: b.leakedLives,
+    leakedLives: b.leakedLives, coreHits: b.coreHits,
     bounty: b.bounty,
     spawned: b.spawned, killed: b.killed, leaked: b.leaked, killDepth,
     contacts: [...b.contacts].sort((x, y) => x - y),
